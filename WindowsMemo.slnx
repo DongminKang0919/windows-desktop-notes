@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/WindowsMemo/WindowsMemo.csproj" />
+  <Project Path="tests/WindowsMemo.Tests/WindowsMemo.Tests.csproj" />
+</Solution>
