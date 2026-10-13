@@ -1,6 +1,6 @@
 # 버전 및 자동 업데이트 설계
 
-2026-10-13 자동 업데이트 요구사항을 반영한 초기 설계다. 앱 prototype과 공통 버전 설정은 구현했고 현재 로컬 개발 버전은 0.6.0이다. 배포 패키징과 업데이트 서버는 아직 구현 또는 연결되지 않았다.
+2026-10-13 자동 업데이트 요구사항을 반영한 초기 설계다. 앱 prototype과 공통 버전 설정은 구현했고 현재 로컬 개발 버전은 0.6.0이다. Windows x64 framework-dependent ZIP 패키징을 구현했다. 설치 프로그램·서명·업데이트 서버는 아직 구현 또는 연결되지 않았다.
 
 ## 버전 관리
 
@@ -19,6 +19,16 @@
 위 숫자는 예시이며 현재 배포 버전은 없다. 0.x에서도 데이터 호환성 변경을 릴리스 노트에 명시하고 이전 절차를 검증한다.
 
 버전은 프로젝트 생성 후 공통 빌드 설정 한 곳에서 관리하고 앱 표시·패키징·릴리스 태그가 일치하는지 검증한다. DLL의 AssemblyVersion 등은 도구 규칙에 맞춰 매핑하되 사용자에게 보이는 제품 버전과 혼동하지 않는다. 업데이트 버전은 문자열 비교가 아닌 패키징 도구의 버전 비교를 사용한다.
+
+## WM-010A: prototype ZIP 패키징
+
+scripts/package.ps1은 공통 버전으로 Release 빌드·자동 검증 후 win-x64 framework-dependent publish를 수행한다. 실행 파일 버전과 x64 apphost를 검사하고 시작 안내·파일별 SHA256·소스 커밋 및 작업 폴더 변경 여부를 포함하는 manifest를 만든다. ZIP과 체크섬은 artifacts의 실행별 GUID 폴더에 생성하며 기존 파일을 덮어쓰거나 사용자 메모를 읽지 않는다.
+
+.NET 10 Desktop Runtime x64 설치가 필요하다. 이 ZIP은 설치·업데이트 패키지가 아니며 코드 서명도 아직 없다. 파일 해시와 ZIP SHA256은 손상 검사이고 게시자 신뢰 검증과 다르다. 스키마 3과 앱 버전 0.6.0은 그대로 유지한다.
+
+verify-package.ps1은 ZIP을 추출하지 않고 파일 목록·버전·해시·경로를 검사한다. test-package.ps1은 원본 보존 후 변조 복사본으로 체크섬·내용·경로·버전·출력 경계 거부를 확인한다. 수동 GitHub Actions 작업은 검증 성공 후 ZIP·체크섬만 다운로드용 artifact로 보관한다. 실제 원격 작업과 압축 해제본 실행은 후속 검토다.
+
+참고: [Microsoft publish 방식](https://learn.microsoft.com/en-us/dotnet/core/deploying/), [GitHub artifact 업로드](https://github.com/actions/upload-artifact), [로컬 검증 기록](results/PACKAGE-10A.md).
 
 ## 배포 후보
 

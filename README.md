@@ -4,7 +4,7 @@
 
 다른 프로그램을 사용할 때는 창 뒤에 놓이고, 바탕화면 보기에서는 메모를 바로 확인하고 편집할 수 있도록 만들고 있습니다. C#과 WPF로 개발하며 메모는 이 PC에 저장합니다.
 
-> 현재 버전은 **0.6.0 prototype**입니다. 여러 메모·트레이·숨김 상태 복원·휴지통·로그인 자동 실행 옵션을 구현했으며, 설치 프로그램과 정식 릴리스는 아직 제공하지 않습니다. 바탕화면 부착은 Windows 탐색기의 내부 창 구조에 의존하므로 환경에 따라 동작이 달라질 수 있습니다.
+> 현재 버전은 **0.6.0 prototype**입니다. 여러 메모·트레이·숨김 상태 복원·휴지통·로그인 자동 실행 옵션을 구현했으며, Windows x64 ZIP 패키징을 지원하며, 설치 프로그램과 정식 릴리스는 아직 제공하지 않습니다. 바탕화면 부착은 Windows 탐색기의 내부 창 구조에 의존하므로 환경에 따라 동작이 달라질 수 있습니다.
 
 ## 주요 기능
 
@@ -47,6 +47,24 @@ dotnet build WindowsMemo.slnx --configuration Release
 ```
 
 `dotnet`을 찾지 못하면 SDK 설치 후 PowerShell을 새로 열어 주세요. 기본 설치 경로는 `C:\Program Files\dotnet\dotnet.exe`입니다. 편의 명령은 [scripts/dev.ps1](scripts/dev.ps1)에서 확인할 수 있습니다.
+
+## ZIP 패키지 만들기
+
+프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정에서 읽으며, 현재 앱 버전은 0.6.0을 유지합니다.
+
+```powershell
+.\scripts\package.ps1
+# 로그인된 Windows 세션에서 바탕화면 호스트 검증까지 포함하려면:
+.\scripts\package.ps1 -ShellProbe
+```
+
+Release 빌드와 검증 후 Windows x64 publish 결과를 `artifacts/package-GUID` 아래 ZIP·SHA256 파일로 만듭니다. 매번 별도 폴더를 사용하며 기존 패키지를 덮어쓰지 않습니다. ZIP에는 실행 파일, 런타임 설정, 시작 안내와 파일별 해시·버전·소스 상태 manifest만 포함합니다. 사용자 메모와 테스트 데이터는 포함하지 않습니다.
+
+ZIP 전체를 풀고 `WindowsMemo.exe`를 실행합니다. **.NET 10 Desktop Runtime x64가 필요**하며 런타임을 포함한 패키지는 아닙니다. 자동 실행 등록 후 폴더를 옮기면 다시 등록해야 합니다. 실제 압축 해제본의 UI 실행은 검토 대기입니다.
+
+`scripts/verify-package.ps1 -ZipPath <ZIP 경로>`로 구성과 해시를 확인하고, `scripts/test-package.ps1 -ZipPath <ZIP 경로>`로 변조·위험 경로 거부를 확인할 수 있습니다. 해시는 손상 확인용이며 게시자 서명을 대신하지 않습니다.
+
+[Build prototype ZIP](.github/workflows/package.yml)은 GitHub Actions 수동 실행으로 다운로드용 ZIP과 체크섬을 14일 보관하도록 구성했습니다. GitHub Release 게시·설치·자동 업데이트는 수행하지 않습니다. 상세는 [패키징 검증 기록](docs/results/PACKAGE-10A.md)을 참고해 주세요.
 
 ## 사용 방법
 
