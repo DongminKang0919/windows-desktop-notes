@@ -136,11 +136,21 @@ internal static class StorageTests
         {
             var repo = Repository("future-schema"); repo.Save(Record("old-backup")); repo.Save(Record("current"));
             byte[] backup = File.ReadAllBytes(repo.BackupPath);
-            byte[] cipher = ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(Record("future") with { SchemaVersion = 3 }), null, DataProtectionScope.CurrentUser);
+            byte[] cipher = ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(Record("future") with { SchemaVersion = 4 }), null, DataProtectionScope.CurrentUser);
             File.WriteAllText(repo.PrimaryPath, JsonSerializer.Serialize(new { Version = 1, Protection = "DPAPI-CurrentUser", Ciphertext = cipher }));
             byte[] primary = File.ReadAllBytes(repo.PrimaryPath);
             Throws(() => repo.Load(Validate, out _));
             Assert(File.ReadAllBytes(repo.PrimaryPath).SequenceEqual(primary) && File.ReadAllBytes(repo.BackupPath).SequenceEqual(backup));
+        });
+        check("삭제 상태: 이전 스키마·표시 상태·잘못된 시각 거부", () =>
+        {
+            var repo = Repository("deleted-validation"); var record = Record("keep");
+            var deleted = record.UpdatedAtUtc;
+            Throws(() => repo.Save(record with { SchemaVersion = 2, Hidden = true, DeletedAtUtc = deleted }));
+            Throws(() => repo.Save(record with { SchemaVersion = 3, Hidden = false, DeletedAtUtc = deleted }));
+            Throws(() => repo.Save(record with { SchemaVersion = 3, Hidden = true, DeletedAtUtc = record.CreatedAtUtc.AddDays(-1) }));
+            Throws(() => repo.Save(record with { SchemaVersion = 3, Hidden = true, DeletedAtUtc = record.UpdatedAtUtc.AddDays(1) }));
+            Assert(!File.Exists(repo.PrimaryPath));
         });
         check("여러 메모: 독립 저장·백업·손상 복구와 기존 ID 호환", () =>
         {

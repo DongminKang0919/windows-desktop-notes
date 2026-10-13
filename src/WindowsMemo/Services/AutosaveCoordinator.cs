@@ -12,15 +12,16 @@ public sealed class AutosaveCoordinator : IDisposable
     private readonly Func<NoteBounds> _bounds;
     private readonly DateTimeOffset _created;
     private readonly Func<bool> _hidden;
+    private readonly Func<DateTimeOffset?> _deleted;
     private readonly DispatcherTimer _timer;
     private Task<bool>? _saving;
     private long _version, _savedVersion;
     private DateTimeOffset _firstChange, _lastChange, _retryAfter;
     private bool _disposed;
 
-    public AutosaveCoordinator(NoteView view, FileNoteRepository repository, Func<NoteBounds> bounds, DateTimeOffset created, Func<bool>? hidden = null)
+    public AutosaveCoordinator(NoteView view, FileNoteRepository repository, Func<NoteBounds> bounds, DateTimeOffset created, Func<bool>? hidden = null, Func<DateTimeOffset?>? deleted = null)
     {
-        _view = view; _repository = repository; _bounds = bounds; _created = created; _hidden = hidden ?? (() => false);
+        _view = view; _repository = repository; _bounds = bounds; _created = created; _hidden = hidden ?? (() => false); _deleted = deleted ?? (() => null);
         _view.DocumentChanged += OnChange;
         _view.SaveRequested += OnSave;
         _timer = new DispatcherTimer(DispatcherPriority.Background, view.Dispatcher) { Interval = TimeSpan.FromMilliseconds(250) };
@@ -74,8 +75,8 @@ public sealed class AutosaveCoordinator : IDisposable
         try
         {
             _view.SetSaveStatus("저장 중…", false);
-            var record = new NoteRecord(2, _repository.Id, RtfDocumentCodec.Save(_view.TextEditor.Document),
-                _bounds(), _created, DateTimeOffset.UtcNow, _hidden());
+            var record = new NoteRecord(3, _repository.Id, RtfDocumentCodec.Save(_view.TextEditor.Document),
+                _bounds(), _created, DateTimeOffset.UtcNow, _hidden(), _deleted());
             await Task.Run(() => _repository.Save(record));
             _savedVersion = version;
             _retryAfter = default;

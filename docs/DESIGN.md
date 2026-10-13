@@ -1,6 +1,6 @@
 # 초기 설계
 
-이 문서는 전체 제품의 초기 설계다. 현재 Program, NoteView, DesktopNoteHost 및 NativeMethods로 첫 prototype을 구현했다. 0.3.0에서 NoteRecord, RtfDocumentCodec, AutosaveCoordinator, FileNoteRepository로 메모 하나 저장을 추가했다. 0.4.0에서 NoteWorkspace·NoteSession·NoteSurface·TrayController·NoteListWindow로 여러 메모·트레이·숨김을 구현했다. MVVM과 휴지통·자동 실행·업데이트는 후속 항목이다. 요구사항은 `REQUIREMENTS.md`, 작업 상태는 `BACKLOG.md`, 실제 구조는 README를 기준으로 한다.
+이 문서는 전체 제품의 초기 설계다. 현재 Program, NoteView, DesktopNoteHost 및 NativeMethods로 첫 prototype을 구현했다. 0.3.0에서 NoteRecord, RtfDocumentCodec, AutosaveCoordinator, FileNoteRepository로 메모 하나 저장을 추가했다. 0.4.0에서 NoteWorkspace·NoteSession·NoteSurface·TrayController·NoteListWindow로 여러 메모·트레이·숨김을 구현했다. 0.5.0에서 휴지통 이동·복원·영구 삭제와 스키마 3의 DeletedAtUtc를 추가했다. MVVM과 자동 실행·업데이트는 후속 항목이다. 요구사항은 `REQUIREMENTS.md`, 작업 상태는 `BACKLOG.md`, 실제 구조는 README를 기준으로 한다.
 
 ## 기술 및 의존성 방향
 
@@ -66,6 +66,14 @@ NoteWorkspace는 ID별 저장소와 표시·숨김·복원 오류 메타데이�
 파일 읽기·복호화는 작업 스레드에서 수행하고 RTF 검사는 UI 디스패처로 넘긴다. 저장·숨김·재표시·전체 저장은 작업공간에서 중복 실행을 막는다. 전체 저장은 한 메모가 실패해도 나머지를 시도하고 실패 시 모든 창을 유지한다. 손상 메모의 오류는 개별 항목에 표시한다.
 
 TrayController는 NotifyIcon·메뉴·아이콘과 목록 창을 정리한다. 목록 창은 닫을 때 작업공간 이벤트 구독을 해제한다. 정상 종료는 전체 저장 후 Application.Shutdown으로 수행하며 로그오프·Windows 종료 요청에서는 저장을 시도하기 위해 종료 요청을 취소한다. 강제 종료·정전은 마지막 미저장 변경까지 보장하지 않는다.
+
+## 0.5.0 휴지통 구현
+
+삭제는 스키마 3의 DeletedAtUtc와 Hidden=true를 본문·서식과 함께 암호화해 저장한다. 성공 후 해당 세션을 폐기한다. 숨긴 메모도 파일을 읽어 같은 상태로 이동한다. 휴지통 복원은 DeletedAtUtc를 해제하고 숨김 상태로 일반 목록에 돌려놓으며, 사용자가 열 때 편집기를 다시 생성한다. 저장 실패 시 원래 목록과 최신 편집기를 유지한다.
+
+영구 삭제는 휴지통 항목과 사용자 확인을 요구한다. 저장소는 실제 파일의 삭제 상태를 다시 검증하고 백업·손상 보존본을 먼저, 본체를 마지막에 삭제한다. 백업으로 복구한 휴지통은 삭제 전에 정상 본체로 다시 저장하여 중간 실패 뒤 재시도할 수 있게 한다. 알려진 GUID 기반 파일만 처리하며 재분석 지점은 거부한다. 보관 파일의 일부 삭제가 끝난 뒤 실패할 수 있으므로 되돌릴 수 있는 작업으로 표시하지 않는다.
+
+휴지통은 자동으로 비우지 않는다. 전부 영구 삭제 후 새 시작에서 생성하는 빈 메모는 새 GUID를 사용하여 삭제한 메모 ID를 재사용하지 않는다. 기존 버전의 고정 ID 파일은 그대로 복원한다.
 
 ## 저장 모델
 

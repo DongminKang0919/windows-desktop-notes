@@ -37,6 +37,7 @@
     <Button Content="파랑" Foreground="#175CD3" Click="Blue_OnClick" />
     <Button Content="• 목록" Click="Bullets_OnClick" />
     <Button Content="1. 목록" Click="Numbering_OnClick" />
+    <Button Content="휴지통으로 이동" Click="Trash_OnClick" ToolTip="삭제한 메모는 휴지통에서 복원할 수 있습니다." />
    </WrapPanel>
    <RichTextBox x:Name="Editor" Grid.Row="2" Margin="10,0,10,8" Padding="8"
     Background="#FFFFF5" BorderThickness="0" VerticalScrollBarVisibility="Auto"

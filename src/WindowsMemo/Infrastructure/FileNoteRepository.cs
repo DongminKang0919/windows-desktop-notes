@@ -130,6 +130,32 @@ public sealed class FileNoteRepository
         }
     }
 
+    // Only a successfully saved trash record may be permanently removed.
+    public void Purge()
+    {
+        lock (_gate)
+        {
+            var record = Load(_ => { }, out bool recovered) ?? throw new InvalidDataException("메모 파일이 없습니다.");
+            if (record.DeletedAtUtc is null) throw new InvalidOperationException("휴지통 메모만 영구 삭제할 수 있습니다.");
+            // Repair a backup-only/damaged trash primary before removing recovery copies.
+            if (recovered) Save(record);
+            string prefix = Path.GetFileName(PrimaryPath) + ".damaged-";
+            var files = Directory.EnumerateFiles(_root)
+                .Where(file => Path.GetFileName(file).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                    && Guid.TryParseExact(Path.GetFileName(file)[prefix.Length..], "N", out _))
+                .Concat([BackupPath, PrimaryPath]).ToArray();
+            CheckPaths();
+            foreach (string file in files) CheckLink(file);
+            // Primary is last: failure or interruption cannot resurrect the older normal backup.
+            foreach (string file in files)
+            {
+                CheckPaths(); CheckLink(file);
+                File.Delete(file);
+            }
+            _preservePrimary = false;
+        }
+    }
+
     private NoteRecord Read(string file)
     {
         using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -152,8 +178,10 @@ public sealed class FileNoteRepository
 
     public static void Validate(NoteRecord record)
     {
-        if (record.SchemaVersion > 2) throw new UnsupportedNoteSchemaException();
-        if (record.SchemaVersion is not (1 or 2) || (record.SchemaVersion == 1 && record.Hidden) || record.Id == Guid.Empty || record.Rtf is not { Length: > 0 and <= 2 * 1024 * 1024 }
+        if (record.SchemaVersion > 3) throw new UnsupportedNoteSchemaException();
+        if (record.SchemaVersion is not (1 or 2 or 3) || (record.SchemaVersion == 1 && record.Hidden)
+            || (record.SchemaVersion < 3 && record.DeletedAtUtc is not null)
+            || (record.DeletedAtUtc is { } deleted && (!record.Hidden || deleted < record.CreatedAtUtc || deleted > record.UpdatedAtUtc)) || record.Id == Guid.Empty || record.Rtf is not { Length: > 0 and <= 2 * 1024 * 1024 }
             || record.Bounds is not { } b || !double.IsFinite(b.X) || !double.IsFinite(b.Y)
             || Math.Abs(b.X) > 1_000_000 || Math.Abs(b.Y) > 1_000_000
             || !double.IsFinite(b.Width) || !double.IsFinite(b.Height) || b.Width is < 1 or > 100_000 || b.Height is < 1 or > 100_000

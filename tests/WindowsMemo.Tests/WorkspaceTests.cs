@@ -42,7 +42,7 @@ internal static class WorkspaceTests
             using (var workspace = Workspace("lifecycle", surfaces))
             {
                 Wait(workspace.InitializeAsync());
-                Assert(workspace.Items.Single().Id == FileNoteRepository.NoteId);
+                Assert(workspace.Items.Single().Id != Guid.Empty);
                 var view = surfaces[0].View!;
                 view.InsertPlainText("한글 메모"); view.TextEditor.SelectAll(); view.ApplyColor(Brushes.RoyalBlue);
                 hiddenId = workspace.Items.Single().Id;
@@ -52,7 +52,7 @@ internal static class WorkspaceTests
                 Assert(Wait(workspace.HideAsync(hiddenId)) && surfaces[0].Disposed);
                 Assert(workspace.Items.Single(item => item.Id == hiddenId).Hidden);
                 var record = Load("lifecycle", hiddenId);
-                Assert(record.Hidden && record.SchemaVersion == 2 && record.Bounds.X == -120);
+                Assert(record.Hidden && record.SchemaVersion == 3 && record.Bounds.X == -120);
                 Assert(Wait(workspace.ShowAsync(hiddenId)));
                 var restored = surfaces[2].View!;
                 Assert(Text(restored) == "한글 메모");
@@ -119,6 +119,120 @@ internal static class WorkspaceTests
             Assert(next.Items.Count == 2 && next.Items.Single(item => item.Id == badId).Error is not null);
             Assert(restored.Count == 1 && Text(restored[0].View!) == "정상 메모");
             Assert(!Wait(next.ShowAsync(badId)) && File.ReadAllText(badRepo.PrimaryPath) == "damaged");
+        });
+        check("휴지통: 최신 본문·서식 보존과 숨김 복원·재실행", () =>
+        {
+            var surfaces = new List<Surface>(); Guid id;
+            using (var workspace = Workspace("trash", surfaces))
+            {
+                Wait(workspace.InitializeAsync()); id = workspace.Items.Single().Id;
+                var view = surfaces[0].View!; view.InsertPlainText("휴지통 한글 메모");
+                view.TextEditor.SelectAll(); view.ApplyColor(Brushes.RoyalBlue);
+                Assert(Wait(workspace.TrashAsync(id)) && surfaces[0].Disposed);
+                Assert(workspace.Items.Count == 0 && workspace.TrashItems.Single().Id == id);
+                var record = Load("trash", id);
+                Assert(record.SchemaVersion == 3 && record.Hidden && record.DeletedAtUtc is not null);
+                Assert(!Wait(workspace.ShowAsync(id)));
+            }
+            var restarted = new List<Surface>(); using var next = Workspace("trash", restarted);
+            Wait(next.InitializeAsync());
+            Assert(next.Items.Count == 0 && next.TrashItems.Single().Id == id && restarted.Count == 0);
+            Assert(Wait(next.RestoreAsync(id)) && next.Items.Single().Hidden && next.TrashItems.Count == 0);
+            Assert(Load("trash", id).DeletedAtUtc is null && restarted.Count == 0);
+            Assert(Wait(next.ShowAsync(id)) && Text(restarted[0].View!) == "휴지통 한글 메모");
+            var doc = restarted[0].View!.TextEditor.Document;
+            Assert(new TextRange(doc.ContentStart, doc.ContentEnd.GetPositionAtOffset(-1)!).GetPropertyValue(TextElement.ForegroundProperty)
+                is SolidColorBrush brush && brush.Color == Colors.RoyalBlue);
+        });
+        check("휴지통 이동 실패: 최신 편집기 유지 후 재시도", () =>
+        {
+            var surfaces = new List<Surface>(); using var workspace = Workspace("trash-failure", surfaces);
+            Wait(workspace.InitializeAsync()); Guid id = workspace.Items.Single().Id;
+            var view = surfaces[0].View!; view.InsertPlainText("이전 내용"); Assert(Wait(workspace.FlushAllAsync()));
+            view.TextEditor.SelectAll(); view.InsertPlainText("최신 미저장 내용");
+            var repo = new FileNoteRepository(Path.Combine(root, "trash-failure"), id);
+            using (var held = new FileStream(repo.PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                Assert(!Wait(workspace.TrashAsync(id)));
+            Assert(!surfaces[0].Disposed && view.IsEnabled && Text(view) == "최신 미저장 내용");
+            Assert(workspace.TrashItems.Count == 0 && Load("trash-failure", id).DeletedAtUtc is null);
+            Assert(Wait(workspace.TrashAsync(id)));
+        });
+        check("숨긴 메모 휴지통 이동·복원 실패 보존과 재시도", () =>
+        {
+            var surfaces = new List<Surface>(); using var workspace = Workspace("hidden-trash", surfaces);
+            Wait(workspace.InitializeAsync()); Guid id = workspace.Items.Single().Id;
+            surfaces[0].View!.InsertPlainText("숨김 내용"); Assert(Wait(workspace.HideAsync(id)));
+            Assert(Wait(workspace.TrashAsync(id)) && surfaces.Count == 1);
+            var repo = new FileNoteRepository(Path.Combine(root, "hidden-trash"), id);
+            using (var held = new FileStream(repo.PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                Assert(!Wait(workspace.RestoreAsync(id)));
+            Assert(workspace.Items.Count == 0 && workspace.TrashItems.Count == 1 && Load("hidden-trash", id).DeletedAtUtc is not null);
+            Assert(Wait(workspace.RestoreAsync(id)) && Load("hidden-trash", id).DeletedAtUtc is null);
+        });
+        check("영구 삭제: 확인·휴지통 제한과 백업·손상 보존본 제거", () =>
+        {
+            var surfaces = new List<Surface>(); using var workspace = Workspace("purge", surfaces);
+            Wait(workspace.InitializeAsync()); Guid id = workspace.Items.Single().Id;
+            surfaces[0].View!.InsertPlainText("삭제 대상"); Assert(Wait(workspace.FlushAllAsync()));
+            Assert(!Wait(workspace.PermanentlyDeleteAsync(id, confirmed: true)));
+            Assert(Wait(workspace.TrashAsync(id)));
+            var repo = new FileNoteRepository(Path.Combine(root, "purge"), id);
+            string damaged = repo.PrimaryPath + ".damaged-" + Guid.NewGuid().ToString("N");
+            File.Copy(repo.BackupPath, damaged);
+            workspace.Create(); Guid otherId = workspace.Items.Single().Id;
+            surfaces[^1].View!.InsertPlainText("보존 대상"); Assert(Wait(workspace.FlushAllAsync()));
+            var other = new FileNoteRepository(Path.Combine(root, "purge"), otherId);
+            byte[] otherBytes = File.ReadAllBytes(other.PrimaryPath);
+            Assert(!Wait(workspace.PermanentlyDeleteAsync(id, confirmed: false)) && File.Exists(repo.PrimaryPath));
+            Assert(Wait(workspace.PermanentlyDeleteAsync(id, confirmed: true)));
+            Assert(!File.Exists(repo.PrimaryPath) && !File.Exists(repo.BackupPath) && !File.Exists(damaged));
+            Assert(!FileNoteRepository.DiscoverIds(Path.Combine(root, "purge")).Contains(id));
+            Assert(File.ReadAllBytes(other.PrimaryPath).SequenceEqual(otherBytes) && workspace.TrashItems.Count == 0);
+        });
+        check("영구 삭제 실패: 휴지통 본체 유지·재실행·재시도", () =>
+        {
+            Guid id; var surfaces = new List<Surface>();
+            using (var workspace = Workspace("purge-failure", surfaces))
+            {
+                Wait(workspace.InitializeAsync()); id = workspace.Items.Single().Id;
+                surfaces[0].View!.InsertPlainText("영구 삭제 시험"); Assert(Wait(workspace.FlushAllAsync()));
+                Assert(Wait(workspace.TrashAsync(id)));
+                var repo = new FileNoteRepository(Path.Combine(root, "purge-failure"), id);
+                using (var held = new FileStream(repo.PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    Assert(!Wait(workspace.PermanentlyDeleteAsync(id, confirmed: true)));
+                Assert(File.Exists(repo.PrimaryPath) && Load("purge-failure", id).DeletedAtUtc is not null);
+            }
+            var restarted = new List<Surface>(); using var next = Workspace("purge-failure", restarted);
+            Wait(next.InitializeAsync()); Assert(next.TrashItems.Single().Id == id && restarted.Count == 0);
+            Assert(Wait(next.PermanentlyDeleteAsync(id, confirmed: true)) && next.TrashItems.Count == 0);
+        });
+        check("영구 삭제: 백업만 남은 휴지통 정리", () =>
+        {
+            var surfaces = new List<Surface>(); Guid id;
+            using (var workspace = Workspace("backup-trash", surfaces))
+            {
+                Wait(workspace.InitializeAsync()); id = workspace.Items.Single().Id;
+                surfaces[0].View!.InsertPlainText("백업 휴지통"); Assert(Wait(workspace.TrashAsync(id)));
+            }
+            var repo = new FileNoteRepository(Path.Combine(root, "backup-trash"), id);
+            File.Move(repo.PrimaryPath, repo.BackupPath, overwrite: true);
+            var restarted = new List<Surface>(); using var next = Workspace("backup-trash", restarted);
+            Wait(next.InitializeAsync()); Assert(next.TrashItems.Single().Id == id);
+            Assert(Wait(next.PermanentlyDeleteAsync(id, confirmed: true)));
+            Assert(!File.Exists(repo.PrimaryPath) && !File.Exists(repo.BackupPath));
+        });
+        check("영구 삭제 후 빈 시작: 삭제한 ID 재사용 방지", () =>
+        {
+            var surfaces = new List<Surface>(); Guid oldId;
+            using (var workspace = Workspace("empty-after-purge", surfaces))
+            {
+                Wait(workspace.InitializeAsync()); oldId = workspace.Items.Single().Id;
+                Assert(Wait(workspace.TrashAsync(oldId)));
+                Assert(Wait(workspace.PermanentlyDeleteAsync(oldId, confirmed: true)));
+            }
+            var restarted = new List<Surface>(); using var next = Workspace("empty-after-purge", restarted);
+            Wait(next.InitializeAsync());
+            Assert(next.Items.Single().Id != oldId && next.TrashItems.Count == 0);
         });
         check("숨김 20회: 폐기한 편집기 수집과 창 수 유지", () =>
         {
