@@ -13,6 +13,7 @@ public partial class NoteView : UserControl, IDisposable
     private bool _disposed;
     private bool _rollingBack;
     public event EventHandler? CloseRequested;
+    public event EventHandler? ReconnectRequested;
     public event EventHandler<Vector>? MoveRequested;
     public event EventHandler<Vector>? ResizeRequested;
     public RichTextBox TextEditor => Editor;
@@ -24,6 +25,12 @@ public partial class NoteView : UserControl, IDisposable
     }
 
     public void SetMode(string text) => ModeLabel.Text = text;
+    public void SetRecoveryMode(string text, bool canRetry)
+    {
+        SetMode(text);
+        ReconnectButton.Visibility = canRetry ? Visibility.Visible : Visibility.Collapsed;
+    }
+    public void RequestClose() => CloseRequested?.Invoke(this, EventArgs.Empty);
 
     public bool InsertPlainText(string text)
     {
@@ -95,7 +102,8 @@ public partial class NoteView : UserControl, IDisposable
     private void Blue_OnClick(object sender, RoutedEventArgs e) => ApplyColor(Brushes.RoyalBlue);
     private void Bullets_OnClick(object sender, RoutedEventArgs e) => ToggleBullets();
     private void Numbering_OnClick(object sender, RoutedEventArgs e) => ToggleNumbering();
-    private void Close_OnClick(object sender, RoutedEventArgs e) => CloseRequested?.Invoke(this, EventArgs.Empty);
+    private void Close_OnClick(object sender, RoutedEventArgs e) => RequestClose();
+    private void Reconnect_OnClick(object sender, RoutedEventArgs e) => ReconnectRequested?.Invoke(this, EventArgs.Empty);
     private void MoveGrip_OnDragDelta(object sender, DragDeltaEventArgs e) => MoveRequested?.Invoke(this, new Vector(e.HorizontalChange, e.VerticalChange));
     private void ResizeGrip_OnDragDelta(object sender, DragDeltaEventArgs e) => ResizeRequested?.Invoke(this, new Vector(e.HorizontalChange, e.VerticalChange));
 
@@ -105,6 +113,7 @@ public partial class NoteView : UserControl, IDisposable
         _disposed = true;
         DataObject.RemovePastingHandler(Editor, OnPasting);
         CloseRequested = null;
+        ReconnectRequested = null;
         MoveRequested = null;
         ResizeRequested = null;
     }

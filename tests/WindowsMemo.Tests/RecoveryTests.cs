@@ -1,0 +1,148 @@
+using System.Runtime.CompilerServices;
+using System.IO;
+using System.Windows.Documents;
+using System.Windows.Interop;
+using System.Windows.Media;
+using WindowsMemo.Interop;
+using WindowsMemo.Views;
+
+namespace WindowsMemo.Tests;
+
+internal static class RecoveryTests
+{
+    internal static void Run(Action<string, Action> check)
+    {
+        check("음수 좌표 모니터에서 작업 영역 유지", () =>
+        {
+            var area = new PixelBounds(-1920, -200, 1920, 1040);
+            var result = new PixelBounds(-2200, -500, 420, 480).FitWithin(area, 320, 260);
+            Assert(result.X == -1920 && result.Y == -200);
+            Assert(result.Width == 420 && result.Height == 480);
+        });
+        check("모니터 제거 후 화면 밖 메모 복구", () =>
+        {
+            var result = new PixelBounds(2500, 1700, 420, 480).FitWithin(new PixelBounds(0, 0, 1920, 1040), 320, 260);
+            Assert(result.X == 1500 && result.Y == 560);
+        });
+        check("작은 작업 영역과 과대 크기 제한", () =>
+        {
+            var result = new PixelBounds(0, 0, 4000, 3000).FitWithin(new PixelBounds(20, 30, 200, 150), 320, 260);
+            Assert(result == new PixelBounds(20, 30, 200, 150));
+        });
+        check("DPI 크기 변환은 화면 위치 유지", () =>
+        {
+            var bounds = new PixelBounds(-1000, 40, 420, 480);
+            Assert(bounds.ScaleSize(1, 2) == new PixelBounds(-1000, 40, 840, 960));
+            Assert(bounds.ScaleSize(1, 2).ScaleSize(2, 1) == bounds);
+        });
+        check("유효하지 않은 배율 거부", () =>
+        {
+            bool rejected = false;
+            try { new PixelBounds(0, 0, 420, 480).ScaleSize(1, double.NaN); }
+            catch (ArgumentOutOfRangeException) { rejected = true; }
+            Assert(rejected);
+        });
+        check("부모 창 손실 후 내용·서식 유지하며 재부착", () =>
+        {
+            using var firstParent = ParentSurface();
+            using var secondParent = ParentSurface();
+            nint parent = firstParent.Handle;
+            using var view = new NoteView();
+            using var host = new DesktopNoteHost(view, () => parent, watchChanges: false);
+            host.Open(visible: false);
+            view.InsertPlainText("복구할 한글 메모");
+            view.TextEditor.SelectAll();
+            view.ToggleBold();
+            view.ApplyColor(Brushes.RoyalBlue);
+            view.ToggleBullets();
+            byte[] before = Rtf(view);
+            firstParent.Dispose();
+            parent = 0;
+            host.CheckConnection();
+            Assert(host.Handle == 0 && host.HasFallback);
+            Assert(Rtf(view).SequenceEqual(before));
+            parent = secondParent.Handle;
+            host.CheckConnection();
+            Assert(host.Handle != 0 && !host.HasFallback && host.RecoveryAttempts == 0);
+            Assert(Rtf(view).SequenceEqual(before));
+            Assert(view.InsertPlainText("계속 편집"));
+        });
+        check("재시도 한도와 수동 재연결", () =>
+        {
+            using var firstParent = ParentSurface();
+            using var replacement = ParentSurface();
+            nint parent = firstParent.Handle;
+            int lookups = 0;
+            using var view = new NoteView();
+            using var host = new DesktopNoteHost(view, () => { lookups++; return parent; }, watchChanges: false);
+            host.Open(visible: false);
+            view.InsertPlainText("보존할 내용");
+            firstParent.Dispose();
+            parent = 0;
+            for (int i = 0; i < 30; i++) host.CheckConnection();
+            Assert(host.RecoveryStopped && host.HasFallback);
+            Assert(lookups == 1 + DesktopNoteHost.MaxRecoveryAttempts);
+            parent = replacement.Handle;
+            host.RetryConnection();
+            Assert(host.Handle != 0 && !host.RecoveryStopped && !host.HasFallback);
+            Assert(Text(view).Contains("보존할 내용"));
+        });
+        check("20회 표면 재생성 후 원래 내용 유지", () =>
+        {
+            using var view = new NoteView();
+            HwndSource parent = ParentSurface();
+            using var host = new DesktopNoteHost(view, () => parent.Handle, watchChanges: false);
+            try
+            {
+                host.Open(visible: false);
+                view.InsertPlainText("반복 복구 메모");
+                for (int i = 0; i < 20; i++)
+                {
+                    parent.Dispose();
+                    parent = ParentSurface();
+                    host.CheckConnection();
+                    Assert(host.Handle != 0 && !host.HasFallback);
+                }
+                Assert(Text(view).Contains("반복 복구 메모"));
+                host.Dispose();
+                Assert(host.Handle == 0);
+            }
+            finally { parent.Dispose(); }
+        });
+        check("복구 호스트 및 편집기 참조 해제", () =>
+        {
+            var weak = DisposedHostReferences();
+            System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+            Assert(weak.All(reference => !reference.IsAlive));
+        });
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference[] DisposedHostReferences()
+    {
+        using var parent = ParentSurface();
+        var view = new NoteView();
+        var host = new DesktopNoteHost(view, () => parent.Handle, watchChanges: true);
+        host.Open(visible: false);
+        host.Dispose();
+        view.Dispose();
+        return [new WeakReference(host), new WeakReference(view)];
+    }
+
+    private static HwndSource ParentSurface() => new(new HwndSourceParameters("Recovery test parent", 1600, 900)
+    {
+        PositionX = 0, PositionY = 0, WindowStyle = unchecked((int)0x80000000)
+    });
+    private static string Text(NoteView view) => new TextRange(view.TextEditor.Document.ContentStart, view.TextEditor.Document.ContentEnd).Text;
+    private static byte[] Rtf(NoteView view)
+    {
+        using var stream = new MemoryStream();
+        new TextRange(view.TextEditor.Document.ContentStart, view.TextEditor.Document.ContentEnd).Save(stream, System.Windows.DataFormats.Rtf);
+        return stream.ToArray();
+    }
+    private static void Assert(bool condition)
+    {
+        if (!condition) throw new InvalidOperationException("Recovery assertion failed.");
+    }
+}

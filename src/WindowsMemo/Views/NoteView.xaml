@@ -43,6 +43,7 @@
     <StackPanel Margin="0,0,20,0">
      <TextBlock Text="저장하지 않는 기술 검증 시제품" Foreground="#8A3B12" />
      <TextBlock x:Name="ModeLabel" FontSize="11" Foreground="#5E5A45" TextWrapping="Wrap" />
+     <Button x:Name="ReconnectButton" Content="바탕화면 다시 연결" Visibility="Collapsed" HorizontalAlignment="Left" Click="Reconnect_OnClick" />
      <TextBlock x:Name="NoticeLabel" FontSize="11" Foreground="#8A3B12" TextWrapping="Wrap" />
     </StackPanel>
     <Thumb x:Name="ResizeGrip" Width="18" Height="18" HorizontalAlignment="Right" VerticalAlignment="Bottom"

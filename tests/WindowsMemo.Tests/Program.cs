@@ -106,6 +106,7 @@ internal static class Program
                 try { host.Open(); } catch (ObjectDisposedException) { threw = true; }
                 Assert(threw);
             });
+            RecoveryTests.Run(Check);
             if (args.Contains("--shell-probe"))
             {
                 Check("실제 데스크톱 호스트 생성/해제", () =>
