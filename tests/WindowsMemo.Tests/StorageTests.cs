@@ -121,6 +121,95 @@ internal static class StorageTests
             Assert(File.ReadAllBytes(repo.PrimaryPath).SequenceEqual(before) && File.ReadAllBytes(repo.BackupPath).SequenceEqual(backup));
             repo.Save(Record("three"));Assert(Text(repo.Load(Validate, out _)!) == "three");
         });
+        check("저장 형식: Hidden 없는 기존 스키마 1 복원", () =>
+        {
+            var repo = Repository("legacy-schema"); var record = Record("이전 버전 메모");
+            Directory.CreateDirectory(Path.GetDirectoryName(repo.PrimaryPath)!);
+            var node = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(record))!;
+            node.AsObject().Remove("Hidden");
+            byte[] cipher = ProtectedData.Protect(Encoding.UTF8.GetBytes(node.ToJsonString()), null, DataProtectionScope.CurrentUser);
+            File.WriteAllText(repo.PrimaryPath, JsonSerializer.Serialize(new { Version = 1, Protection = "DPAPI-CurrentUser", Ciphertext = cipher }));
+            var restored = repo.Load(Validate, out bool recovered)!;
+            Assert(restored.SchemaVersion == 1 && !restored.Hidden && !recovered && Text(restored) == "이전 버전 메모");
+        });
+        check("미래 스키마: 이전 백업으로 되돌리거나 원본 덮어쓰지 않음", () =>
+        {
+            var repo = Repository("future-schema"); repo.Save(Record("old-backup")); repo.Save(Record("current"));
+            byte[] backup = File.ReadAllBytes(repo.BackupPath);
+            byte[] cipher = ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(Record("future") with { SchemaVersion = 3 }), null, DataProtectionScope.CurrentUser);
+            File.WriteAllText(repo.PrimaryPath, JsonSerializer.Serialize(new { Version = 1, Protection = "DPAPI-CurrentUser", Ciphertext = cipher }));
+            byte[] primary = File.ReadAllBytes(repo.PrimaryPath);
+            Throws(() => repo.Load(Validate, out _));
+            Assert(File.ReadAllBytes(repo.PrimaryPath).SequenceEqual(primary) && File.ReadAllBytes(repo.BackupPath).SequenceEqual(backup));
+        });
+        check("여러 메모: 독립 저장·백업·손상 복구와 기존 ID 호환", () =>
+        {
+            string folder = Path.Combine(root, "multiple");
+            var legacy = new FileNoteRepository(folder);
+            Guid id = Guid.NewGuid();
+            var other = new FileNoteRepository(folder, id);
+            legacy.Save(Record("legacy-one")); legacy.Save(Record("legacy-two"));
+            other.Save(Record("other-one") with { Id = id });
+            other.Save(Record("other-two") with { Id = id });
+            byte[] otherPrimary = File.ReadAllBytes(other.PrimaryPath), otherBackup = File.ReadAllBytes(other.BackupPath);
+            File.WriteAllText(legacy.PrimaryPath, "damaged");
+            var recovered = legacy.Load(Validate, out bool usedBackup)!;
+            Assert(usedBackup && Text(recovered) == "legacy-one");
+            legacy.Save(recovered);
+            Assert(File.ReadAllBytes(other.PrimaryPath).SequenceEqual(otherPrimary));
+            Assert(File.ReadAllBytes(other.BackupPath).SequenceEqual(otherBackup));
+            Assert(Text(other.Load(Validate, out _)!) == "other-two");
+            Assert(legacy.Id == FileNoteRepository.NoteId);
+            Assert(Path.GetFileName(legacy.PrimaryPath) == FileNoteRepository.NoteId.ToString("N") + ".json");
+        });
+        check("메모 목록: 중복 제거·백업만 남은 메모·보존 파일 제외", () =>
+        {
+            string folder = Path.Combine(root, "discovery");
+            Assert(FileNoteRepository.DiscoverIds(folder).Count == 0);
+            var legacy = new FileNoteRepository(folder);
+            Guid id = Guid.NewGuid(); var other = new FileNoteRepository(folder, id);
+            legacy.Save(Record("legacy")); legacy.Save(Record("updated"));
+            other.Save(Record("backup-only") with { Id = id });
+            File.Move(other.PrimaryPath, other.BackupPath);
+            File.WriteAllText(Path.Combine(folder, Guid.NewGuid().ToString("N") + ".tmp"), "ignored");
+            File.WriteAllText(legacy.PrimaryPath + ".damaged-" + Guid.NewGuid().ToString("N"), "ignored");
+            File.WriteAllText(Path.Combine(folder, "unexpected.json"), "ignored");
+            File.WriteAllText(Path.Combine(folder, Guid.Empty.ToString("N") + ".json"), "ignored");
+            var ids = FileNoteRepository.DiscoverIds(folder);
+            Assert(ids.Count == 2 && ids.Contains(legacy.Id) && ids.Contains(other.Id));
+            Assert(ids.SequenceEqual(ids.OrderBy(value => value)));
+            Assert(Text(other.Load(Validate, out bool recovered)!) == "backup-only" && recovered);
+        });
+        check("메모 ID 경계: 다른 ID 저장·파일 교체·빈 ID 거부", () =>
+        {
+            string folder = Path.Combine(root, "identity");
+            Guid id = Guid.NewGuid(); var other = new FileNoteRepository(folder, id);
+            Throws(() => new FileNoteRepository(folder, Guid.Empty));
+            Throws(() => other.Save(Record("wrong-id")));
+            Assert(!File.Exists(other.PrimaryPath));
+            var legacy = new FileNoteRepository(folder); legacy.Save(Record("keep"));
+            File.Copy(legacy.PrimaryPath, other.PrimaryPath);
+            byte[] wrong = File.ReadAllBytes(other.PrimaryPath);
+            Throws(() => other.Load(Validate, out _));
+            Assert(File.ReadAllBytes(other.PrimaryPath).SequenceEqual(wrong));
+            Assert(Text(legacy.Load(Validate, out _)!) == "keep");
+        });
+        check("자동 저장: 두 메모의 본문·ID·위치 분리", () =>
+        {
+            string folder = Path.Combine(root, "multi-autosave");
+            Guid firstId = Guid.NewGuid(), secondId = Guid.NewGuid();
+            var firstRepo = new FileNoteRepository(folder, firstId);
+            var secondRepo = new FileNoteRepository(folder, secondId);
+            using var firstView = new NoteView(); using var secondView = new NoteView();
+            using var firstSaves = new AutosaveCoordinator(firstView, firstRepo, () => new NoteBounds(10,20,420,480), DateTimeOffset.UtcNow.AddMinutes(-1));
+            using var secondSaves = new AutosaveCoordinator(secondView, secondRepo, () => new NoteBounds(80,90,320,360), DateTimeOffset.UtcNow.AddMinutes(-1));
+            firstView.InsertPlainText("첫 번째 메모"); secondView.InsertPlainText("두 번째 메모");
+            var firstSave = firstSaves.FlushAsync(); var secondSave = secondSaves.FlushAsync();
+            Assert(Wait(firstSave) && Wait(secondSave));
+            var firstRecord = firstRepo.Load(Validate, out _)!; var secondRecord = secondRepo.Load(Validate, out _)!;
+            Assert(firstRecord.Id == firstId && Text(firstRecord) == "첫 번째 메모" && firstRecord.Bounds.X == 10);
+            Assert(secondRecord.Id == secondId && Text(secondRecord) == "두 번째 메모" && secondRecord.Bounds.X == 80);
+        });
         check("자동 저장: 저장 중 새 변경·실패 재시도·서식만 변경", () =>
         {
             var repo = Repository("autosave");

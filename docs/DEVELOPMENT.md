@@ -1,5 +1,11 @@
 # 개발 방식
 
+## 사용자 작업 선호
+
+- 작업을 마칠 때 검증 결과와 남은 제한사항을 기록하고 로컬 커밋까지 수행한다.
+- 원격 푸시는 사용자가 다시 요청하기 전까지 기존 보류를 유지한다.
+- 개발 단계 표기는 prototype을 사용한다.
+
 ## 운영 원칙
 
 혼자 개발하는 프로젝트에 맞춰 칸반, 주간 스프린트, 인수 조건, 짧은 회고를 사용한다. 문서는 목표와 결과를 명확하게 하는 수준으로 유지한다.
@@ -63,7 +69,7 @@ GitHub Projects 연결 전에는 `BACKLOG.md`로 관리한다. 연결 후 이슈
 
 ## Git와 CI 도입 계획
 
-현재 로컬 Git 저장소를 main 브랜치로 초기화하고 https://github.com/DongminKang0919/windows-desktop-notes.git 를 origin으로 연결했다. CI와 GitHub Projects는 아직 없다.
+현재 로컬 Git 저장소를 main 브랜치로 초기화하고 https://github.com/DongminKang0919/windows-desktop-notes.git 를 origin으로 연결했다. Windows 빌드 CI 워크플로를 추가했으며 원격 실행 검증은 남아 있다. GitHub Projects는 아직 연결하지 않았다.
 
 - `main`을 기본 브랜치로 사용한다.
 - 작업별로 짧은 브랜치를 사용한다. 예: `feat/desktop-attachment`, `fix/note-restore`, `docs/readme`.

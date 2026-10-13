@@ -18,12 +18,17 @@
     <RowDefinition Height="*" /><RowDefinition Height="Auto" />
    </Grid.RowDefinitions>
    <Grid Background="#F0DF91">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
     <Thumb x:Name="MoveGrip" Cursor="SizeAll" DragDelta="MoveGrip_OnDragDelta">
      <Thumb.Template><ControlTemplate TargetType="Thumb">
-      <Border Background="Transparent"><TextBlock Text="Windows 메모 · 시제품" Margin="12,0" VerticalAlignment="Center" FontWeight="SemiBold" /></Border>
+      <Border Background="Transparent"><TextBlock Text="Windows 메모" Margin="12,0" VerticalAlignment="Center" FontWeight="SemiBold" /></Border>
      </ControlTemplate></Thumb.Template>
     </Thumb>
-    <Button Content="닫기" HorizontalAlignment="Right" Click="Close_OnClick" ToolTip="저장 후 앱 종료" />
+    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+     <Button Content="새 메모" Click="New_OnClick" />
+     <Button Content="목록" Click="List_OnClick" />
+     <Button Content="닫기" Click="Close_OnClick" ToolTip="저장 후 숨김 · 트레이에서 다시 열기" />
+    </StackPanel>
    </Grid>
    <WrapPanel Grid.Row="1" Margin="6">
     <Button Content="굵게" FontWeight="Bold" Click="Bold_OnClick" ToolTip="선택 영역 굵게 (Ctrl+B)" />

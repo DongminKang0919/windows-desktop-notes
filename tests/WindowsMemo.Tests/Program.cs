@@ -108,6 +108,7 @@ internal static class Program
             });
             RecoveryTests.Run(Check);
             StorageTests.Run(Check);
+            WorkspaceTests.Run(Check);
             if (args.Contains("--shell-probe"))
             {
                 Check("실제 데스크톱 호스트 생성/해제", () =>

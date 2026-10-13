@@ -1,6 +1,6 @@
 # 버전 및 자동 업데이트 설계
 
-2026-10-13 자동 업데이트 요구사항을 반영한 초기 설계다. 앱 시제품과 공통 버전 설정은 구현했고 현재 로컬 개발 버전은 0.2.0이다. 배포 패키징과 업데이트 서버는 아직 구현 또는 연결되지 않았다.
+2026-10-13 자동 업데이트 요구사항을 반영한 초기 설계다. 앱 prototype과 공통 버전 설정은 구현했고 현재 로컬 개발 버전은 0.4.0이다. 배포 패키징과 업데이트 서버는 아직 구현 또는 연결되지 않았다.
 
 ## 버전 관리
 
@@ -28,7 +28,7 @@
 | MSIX + App Installer | Windows가 제공하는 업데이트 경로 | 패키지 서명·호스팅 및 바탕화면 연동·자동 실행 적합성 |
 | ClickOnce | WPF 앱의 배포와 자동 업데이트 대안 | 배포 UI 및 최신 .NET에서 필요한 기능 검증 |
 
-초기 추천은 Velopack이다. 확정 의존성이 아니라 배포 검증 후보이며, 바탕화면 부착 시제품보다 우선하지 않는다.
+초기 추천은 Velopack이다. 확정 의존성이 아니라 배포 검증 후보이며, 바탕화면 부착 prototype보다 우선하지 않는다.
 
 참고: [Velopack 연동](https://docs.velopack.io/integrating/overview), [업데이트 소스](https://docs.velopack.io/integrating/update-sources), [MSIX 업데이트 설정](https://learn.microsoft.com/en-us/windows/msix/app-installer/update-settings), [ClickOnce 게시](https://learn.microsoft.com/en-us/visualstudio/deployment/publishing-clickonce-applications?view=visualstudio).
 

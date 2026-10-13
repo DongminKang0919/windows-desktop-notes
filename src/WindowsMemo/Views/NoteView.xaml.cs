@@ -15,6 +15,8 @@ public partial class NoteView : UserControl, IDisposable
     public event EventHandler? DocumentChanged;
     public event EventHandler? SaveRequested;
     public event EventHandler? CloseRequested;
+    public event EventHandler? NewRequested;
+    public event EventHandler? ListRequested;
     public event EventHandler? ReconnectRequested;
     public event EventHandler<Vector>? MoveRequested;
     public event EventHandler<Vector>? ResizeRequested;
@@ -112,6 +114,8 @@ public partial class NoteView : UserControl, IDisposable
     private void Blue_OnClick(object sender, RoutedEventArgs e) => ApplyColor(Brushes.RoyalBlue);
     private void Bullets_OnClick(object sender, RoutedEventArgs e) => ToggleBullets();
     private void Numbering_OnClick(object sender, RoutedEventArgs e) => ToggleNumbering();
+    private void New_OnClick(object sender, RoutedEventArgs e) => NewRequested?.Invoke(this, EventArgs.Empty);
+    private void List_OnClick(object sender, RoutedEventArgs e) => ListRequested?.Invoke(this, EventArgs.Empty);
     private void Close_OnClick(object sender, RoutedEventArgs e) => RequestClose();
     private void Reconnect_OnClick(object sender, RoutedEventArgs e) => ReconnectRequested?.Invoke(this, EventArgs.Empty);
     private void MoveGrip_OnDragDelta(object sender, DragDeltaEventArgs e) => MoveRequested?.Invoke(this, new Vector(e.HorizontalChange, e.VerticalChange));
@@ -125,6 +129,8 @@ public partial class NoteView : UserControl, IDisposable
         DocumentChanged = null;
         SaveRequested = null;
         CloseRequested = null;
+        NewRequested = null;
+        ListRequested = null;
         ReconnectRequested = null;
         MoveRequested = null;
         ResizeRequested = null;

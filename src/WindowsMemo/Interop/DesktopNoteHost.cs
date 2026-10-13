@@ -101,7 +101,7 @@ public sealed class DesktopNoteHost : IDisposable
     {
         FitToDesktop();
         var origin = ParentOrigin();
-        var parameters = new HwndSourceParameters("Windows 메모 · 바탕화면 시제품", _bounds.Width, _bounds.Height)
+        var parameters = new HwndSourceParameters("Windows 메모 · 바탕화면 prototype", _bounds.Width, _bounds.Height)
         {
             ParentWindow = _parent,
             PositionX = _bounds.X - origin.X, PositionY = _bounds.Y - origin.Y,

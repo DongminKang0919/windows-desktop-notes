@@ -1,20 +1,20 @@
 # 초기 설계
 
-이 문서는 전체 제품의 초기 설계다. 현재 Program, NoteView, DesktopNoteHost 및 NativeMethods로 첫 시제품을 구현했다. 0.3.0에서 NoteRecord, RtfDocumentCodec, AutosaveCoordinator, FileNoteRepository로 메모 하나 저장을 추가했다. MVVM·여러 메모·트레이 등은 계획이다. 요구사항은 `REQUIREMENTS.md`, 작업 상태는 `BACKLOG.md`, 실제 구조는 README를 기준으로 한다.
+이 문서는 전체 제품의 초기 설계다. 현재 Program, NoteView, DesktopNoteHost 및 NativeMethods로 첫 prototype을 구현했다. 0.3.0에서 NoteRecord, RtfDocumentCodec, AutosaveCoordinator, FileNoteRepository로 메모 하나 저장을 추가했다. 0.4.0에서 NoteWorkspace·NoteSession·NoteSurface·TrayController·NoteListWindow로 여러 메모·트레이·숨김을 구현했다. MVVM과 휴지통·자동 실행·업데이트는 후속 항목이다. 요구사항은 `REQUIREMENTS.md`, 작업 상태는 `BACKLOG.md`, 실제 구조는 README를 기준으로 한다.
 
 ## 기술 및 의존성 방향
 
-- C# + WPF, net10.0-windows 및 .NET SDK 10.0.401을 첫 시제품에 사용한다. SDK는 global.json에 고정했다.
+- C# + WPF, net10.0-windows 및 .NET SDK 10.0.401을 첫 prototype에 사용한다. SDK는 global.json에 고정했다.
 - WPF `RichTextBox`와 `FlowDocument`로 서식을 구현한다. 편집기 기능은 WPF 화면 계층에 둔다.
 - Windows 연동은 Win32 호출을 별도 서비스로 격리한다.
-- 트레이는 Windows Forms `NotifyIcon` 사용을 우선 검토한다. 메모 UI는 WPF로 유지한다.
+- 트레이는 Windows Forms `NotifyIcon`과 `ContextMenuStrip`을 사용한다. 외부 NuGet 패키지를 추가하지 않았고 메모·목록 UI는 WPF로 유지한다.
 - 초기에는 서버, DB, 외부 UI 프레임워크 없이 시작한다. 필요성이 생기기 전까지 의존성을 늘리지 않는다.
 
 RichTextBox는 WPF의 서식 편집 컨트롤이다. 저장용 RTF 변환은 구현 시 실제 왕복 보존 테스트로 확인한다. 참고: [RichTextBox 개요](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/controls/richtextbox-overview).
 
 ## 바탕화면 부착 검증
 
-첫 시제품에서는 탐색기의 SHELLDLL_DefView를 부모로 HwndSource 자식 창을 생성했다. SetParent로 기존 WPF Window를 변경하지 않았다. 현재 사용자 PC에서 Win+D 유지 및 편집을 확인했다. 아래 내용은 선택지 검토와 후속 안정성 검증의 기준이며 전체 Windows 지원을 의미하지 않는다.
+첫 prototype에서는 탐색기의 SHELLDLL_DefView를 부모로 HwndSource 자식 창을 생성했다. SetParent로 기존 WPF Window를 변경하지 않았다. 현재 사용자 PC에서 Win+D 유지 및 편집을 확인했다. 아래 내용은 선택지 검토와 후속 안정성 검증의 기준이며 전체 Windows 지원을 의미하지 않는다.
 
 0.2.0에서는 연결 손실 시 같은 편집기를 임시 일반 창으로 옮기고 최대 10회 재연결한다. 숨겨진 알림용 창과 2초 타이머는 호스트가 관리한다. 작업 영역은 모니터와 바탕화면 부모 영역의 교차 범위로 제한한다. 실제 재시작·혼합 배율 검증은 남아 있으며 결과는 results/RECOVERY-02.md를 따른다.
 
@@ -58,6 +58,14 @@ flowchart LR
 | TrayService / StartupService | 트레이 명령 및 로그인 자동 실행 설정 |
 
 편집기는 WPF UI 스레드에서 서식 문서를 직렬화한다. 불변 스냅샷을 저장 서비스에 전달한 뒤 파일 작업을 수행한다. 백그라운드에서 WPF 문서를 직접 수정하거나 읽지 않는다.
+
+## 0.4.0 메모 수명 구현
+
+NoteWorkspace는 ID별 저장소와 표시·숨김·복원 오류 메타데이터를 관리한다. 보이는 메모마다 NoteSession이 편집기·표면·자동 저장 서비스를 소유한다. 저장 성공 후 숨긴 세션은 실제 폐기하며, 다시 열 때 파일을 읽어 새 세션을 만든다. 숨김 상태는 스키마 2의 Hidden 필드로 본문과 함께 암호화한다. 기존 스키마 1은 Hidden=false로 복원한다.
+
+파일 읽기·복호화는 작업 스레드에서 수행하고 RTF 검사는 UI 디스패처로 넘긴다. 저장·숨김·재표시·전체 저장은 작업공간에서 중복 실행을 막는다. 전체 저장은 한 메모가 실패해도 나머지를 시도하고 실패 시 모든 창을 유지한다. 손상 메모의 오류는 개별 항목에 표시한다.
+
+TrayController는 NotifyIcon·메뉴·아이콘과 목록 창을 정리한다. 목록 창은 닫을 때 작업공간 이벤트 구독을 해제한다. 정상 종료는 전체 저장 후 Application.Shutdown으로 수행하며 로그오프·Windows 종료 요청에서는 저장을 시도하기 위해 종료 요청을 취소한다. 강제 종료·정전은 마지막 미저장 변경까지 보장하지 않는다.
 
 ## 저장 모델
 

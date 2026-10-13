@@ -5,9 +5,14 @@ using WindowsMemo.Models;
 
 namespace WindowsMemo.Infrastructure;
 
+internal sealed class UnsupportedNoteSchemaException : IOException
+{
+    public UnsupportedNoteSchemaException() : base("더 새로운 메모 저장 형식입니다. 파일은 보존됩니다.") { }
+}
+
 public sealed class FileNoteRepository
 {
-    // One app-owned ID while the prototype manages a single note.
+    // Legacy 0.3.0 note ID; keep its path unchanged for compatibility.
     public static readonly Guid NoteId = new("9eeb0907-8f5e-47c6-92dc-ea3c63e4f846");
     public const int MaxFileBytes = 4 * 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new() { MaxDepth = 16 };
@@ -15,11 +20,46 @@ public sealed class FileNoteRepository
     private bool _preservePrimary;
     private readonly object _gate = new();
     private sealed record Envelope(int Version, string Protection, byte[] Ciphertext);
-    public string PrimaryPath => Path.Combine(_root, NoteId.ToString("N") + ".json");
+    public Guid Id { get; }
+    public string PrimaryPath => Path.Combine(_root, Id.ToString("N") + ".json");
     public string BackupPath => PrimaryPath + ".bak";
     public static string DefaultRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WindowsMemo", "Notes");
 
-    public FileNoteRepository(string root) => _root = Path.GetFullPath(root);
+    public FileNoteRepository(string root) : this(root, NoteId) { }
+
+    public FileNoteRepository(string root, Guid id)
+    {
+        if (id == Guid.Empty) throw new ArgumentException("메모 ID가 비어 있습니다.", nameof(id));
+        _root = Path.GetFullPath(root);
+        Id = id;
+    }
+
+    // Discover only app-owned names, including notes with just a surviving backup.
+    // Do not decrypt or construct editors while listing notes.
+    public static IReadOnlyList<Guid> DiscoverIds(string root)
+    {
+        string fullRoot = Path.GetFullPath(root);
+        CheckRoot(fullRoot);
+        if (!Directory.Exists(fullRoot)) return Array.Empty<Guid>();
+        var ids = new HashSet<Guid>();
+        foreach (string file in Directory.EnumerateFiles(fullRoot))
+        {
+            string name = Path.GetFileName(file);
+            string? stem = name.EndsWith(".json.bak", StringComparison.OrdinalIgnoreCase)
+                ? name[..^9] : name.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? name[..^5] : null;
+            if (stem is null || !Guid.TryParseExact(stem, "N", out Guid id) || id == Guid.Empty) continue;
+            CheckLink(file);
+            ids.Add(id);
+            if (ids.Count > 1000) throw new InvalidDataException("메모 목록이 초기 한도 1,000개를 초과했습니다. 파일은 보존됩니다.");
+        }
+        return ids.OrderBy(id => id).ToArray();
+    }
+
+    private void ValidateIdentity(NoteRecord record)
+    {
+        Validate(record);
+        if (record.Id != Id) throw new InvalidDataException("메모 파일과 데이터 ID가 일치하지 않습니다.");
+    }
 
     public NoteRecord? Load(Action<NoteRecord> validateContent, out bool recovered)
     {
@@ -36,7 +76,7 @@ public sealed class FileNoteRepository
                 validateContent(record);
                 return record;
             }
-            catch (Exception ex) when (IsStorageError(ex))
+            catch (Exception ex) when (IsStorageError(ex) && ex is not UnsupportedNoteSchemaException)
             {
                 if (!backup) throw new InvalidDataException("메모를 복원하지 못했습니다. 원본 파일은 보존됩니다.", ex);
                 try
@@ -47,7 +87,7 @@ public sealed class FileNoteRepository
                     _preservePrimary = primary;
                     return record;
                 }
-                catch (Exception backupError) when (IsStorageError(backupError))
+                catch (Exception backupError) when (IsStorageError(backupError) && backupError is not UnsupportedNoteSchemaException)
                 { throw new InvalidDataException("원본과 백업을 복원하지 못했습니다. 파일은 보존됩니다.", backupError); }
             }
         }
@@ -57,7 +97,7 @@ public sealed class FileNoteRepository
     {
         lock (_gate)
         {
-            Validate(record);
+            ValidateIdentity(record);
             CheckPaths();
             Directory.CreateDirectory(_root);
             CheckPaths();
@@ -104,7 +144,7 @@ public sealed class FileNoteRepository
         {
             if (plain.Length > 3 * 1024 * 1024) throw new InvalidDataException("복원 데이터가 크기 한도를 초과했습니다.");
             var record = JsonSerializer.Deserialize<NoteRecord>(plain, JsonOptions) ?? throw new InvalidDataException("메모 데이터가 없습니다.");
-            Validate(record);
+            ValidateIdentity(record);
             return record;
         }
         finally { CryptographicOperations.ZeroMemory(plain); }
@@ -112,7 +152,8 @@ public sealed class FileNoteRepository
 
     public static void Validate(NoteRecord record)
     {
-        if (record.SchemaVersion != 1 || record.Id != NoteId || record.Rtf is not { Length: > 0 and <= 2 * 1024 * 1024 }
+        if (record.SchemaVersion > 2) throw new UnsupportedNoteSchemaException();
+        if (record.SchemaVersion is not (1 or 2) || (record.SchemaVersion == 1 && record.Hidden) || record.Id == Guid.Empty || record.Rtf is not { Length: > 0 and <= 2 * 1024 * 1024 }
             || record.Bounds is not { } b || !double.IsFinite(b.X) || !double.IsFinite(b.Y)
             || Math.Abs(b.X) > 1_000_000 || Math.Abs(b.Y) > 1_000_000
             || !double.IsFinite(b.Width) || !double.IsFinite(b.Height) || b.Width is < 1 or > 100_000 || b.Height is < 1 or > 100_000
@@ -123,9 +164,13 @@ public sealed class FileNoteRepository
 
     private void CheckPaths()
     {
-        for (string? current = _root; current is not null; current = Path.GetDirectoryName(current)) CheckLink(current);
+        CheckRoot(_root);
         CheckLink(PrimaryPath);
         CheckLink(BackupPath);
+    }
+    private static void CheckRoot(string root)
+    {
+        for (string? current = root; current is not null; current = Path.GetDirectoryName(current)) CheckLink(current);
     }
     private static void CheckLink(string path)
     {
