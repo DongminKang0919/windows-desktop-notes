@@ -10,6 +10,8 @@ internal sealed class TrayController : IDisposable
 {
     private readonly Application _app;
     private readonly NoteWorkspace _workspace;
+    private readonly StartupService? _startupService;
+    private readonly Forms.ToolStripMenuItem _startup = new("로그인 시 자동 실행") { CheckOnClick = false, ToolTipText = "앱의 등록 상태입니다. Windows 시작 앱 설정이나 정책에서 별도로 차단할 수 있습니다." };
     private readonly Forms.ContextMenuStrip _menu = new();
     private readonly Forms.NotifyIcon _tray = new();
     private readonly Icon _icon = (Icon)SystemIcons.Application.Clone();
@@ -21,15 +23,18 @@ internal sealed class TrayController : IDisposable
     private NoteListWindow? _window;
     private bool _disposed, _exiting;
 
-    public TrayController(Application app, NoteWorkspace workspace)
+    public TrayController(Application app, NoteWorkspace workspace, StartupService? startupService)
     {
-        _app = app; _workspace = workspace;
+        _app = app; _workspace = workspace; _startupService = startupService;
         try
         {
-            _menu.Items.AddRange([_new, _list, _trash, new Forms.ToolStripSeparator(), _exit]);
+            _menu.Items.AddRange([_new, _list, _trash, new Forms.ToolStripSeparator(), _startup, new Forms.ToolStripSeparator(), _exit]);
             _tray.Icon = _icon; _tray.Text = $"Windows 메모 · {typeof(TrayController).Assembly.GetName().Version?.ToString(3)} prototype"; _tray.ContextMenuStrip = _menu;
             _new.Click += OnNew; _list.Click += OnList; _trash.Click += OnTrash; _exit.Click += OnExit;
             _tray.DoubleClick += OnList;
+            _startup.Click += OnStartup;
+            _menu.Opening += OnMenuOpening;
+            RefreshStartup();
             workspace.Changed += OnChanged; workspace.ListRequested += OnList; workspace.Notice += OnNotice;
             _tray.Visible = true;
         }
@@ -65,6 +70,42 @@ internal sealed class TrayController : IDisposable
         if (_trashWindow.WindowState == WindowState.Minimized) _trashWindow.WindowState = WindowState.Normal;
         _trashWindow.Activate();
     });
+    private void OnMenuOpening(object? sender, System.ComponentModel.CancelEventArgs e) => RefreshStartup();
+    private void RefreshStartup()
+    {
+        _startup.Enabled = _startupService is not null;
+        if (_startupService is null)
+        {
+            _startup.Checked = false;
+            _startup.Text = "로그인 시 자동 실행 (일반 창 진단에서는 변경 불가)";
+            return;
+        }
+        try
+        {
+            var state = _startupService.GetState();
+            _startup.Checked = state == StartupState.Enabled;
+            _startup.Text = state == StartupState.OtherLocation ? "로그인 시 자동 실행 (다른 경로 등록됨 · 클릭하여 해제)" : "로그인 시 자동 실행";
+        }
+        catch (Exception ex) when (StartupService.IsStartupError(ex))
+        {
+            _startup.Checked = false;
+            _startup.Text = "로그인 시 자동 실행 (등록 확인 실패)";
+        }
+    }
+    private void OnStartup(object? sender, EventArgs e) => Dispatch(() =>
+    {
+        if (_startupService is null) return;
+        try
+        {
+            bool enable = _startupService.GetState() == StartupState.Disabled;
+            if (enable && MessageBox.Show("현재 실행 파일을 로그인 시 자동으로 실행할까요? 실행 폴더를 이동하거나 삭제하면 다시 등록해야 합니다.",
+                "로그인 시 자동 실행", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+            _startupService.SetEnabled(enable);
+        }
+        catch (Exception ex) when (StartupService.IsStartupError(ex))
+        { MessageBox.Show("자동 실행 설정을 변경하지 못했습니다. 등록 상태를 다시 확인해 주세요.\n" + ex.Message, "자동 실행 설정 실패", MessageBoxButton.OK, MessageBoxImage.Warning); }
+        finally { RefreshStartup(); }
+    });
     private void OnChanged(object? sender, EventArgs e)
     { _new.Enabled = !_workspace.IsBusy; _exit.Enabled = !_workspace.IsBusy; }
     private void OnNotice(object? sender, string text) => MessageBox.Show(text, "Windows 메모", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -86,6 +127,7 @@ internal sealed class TrayController : IDisposable
         _disposed = true;
         _workspace.Changed -= OnChanged; _workspace.ListRequested -= OnList; _workspace.Notice -= OnNotice;
         _new.Click -= OnNew; _list.Click -= OnList; _trash.Click -= OnTrash; _exit.Click -= OnExit; _tray.DoubleClick -= OnList;
+        _startup.Click -= OnStartup; _menu.Opening -= OnMenuOpening;
         _tray.Visible = false; _tray.ContextMenuStrip = null;
         _tray.Dispose(); _menu.Dispose(); _icon.Dispose();
         _window?.Close(); _window = null;

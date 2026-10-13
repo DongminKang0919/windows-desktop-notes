@@ -50,12 +50,13 @@ internal sealed class NoteWorkspace : IDisposable
         || ex is InvalidOperationException or System.ComponentModel.Win32Exception;
     private void Publish() => Changed?.Invoke(this, EventArgs.Empty);
 
-    public async Task InitializeAsync()
+    public async Task InitializeAsync(Func<Task>? prepare = null)
     {
         if (IsBusy) return;
-        _busy = true;
+        _busy = true; Publish();
         try
         {
+            if (prepare is not null) await prepare();
             var ids = await Task.Run(() => FileNoteRepository.DiscoverIds(_root));
             foreach (Guid id in ids)
             {

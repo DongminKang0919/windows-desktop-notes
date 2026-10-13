@@ -234,6 +234,17 @@ internal static class WorkspaceTests
             Wait(next.InitializeAsync());
             Assert(next.Items.Single().Id != oldId && next.TrashItems.Count == 0);
         });
+        check("로그인 초기화 대기: 준비 중 생성·종료 중복 차단", () =>
+        {
+            var surfaces = new List<Surface>(); using var workspace = Workspace("startup-wait", surfaces);
+            var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var initialization = workspace.InitializeAsync(() => ready.Task);
+            Assert(workspace.IsBusy);
+            workspace.Create(); Assert(workspace.Items.Count == 0 && surfaces.Count == 0);
+            Assert(!Wait(workspace.FlushAllAsync()));
+            ready.SetResult(); Wait(initialization);
+            Assert(!workspace.IsBusy && workspace.Items.Count == 1 && surfaces.Count == 1);
+        });
         check("숨김 20회: 폐기한 편집기 수집과 창 수 유지", () =>
         {
             var surfaces = new List<Surface>(); using var workspace = Workspace("repeated", surfaces);

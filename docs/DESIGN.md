@@ -1,6 +1,6 @@
 # 초기 설계
 
-이 문서는 전체 제품의 초기 설계다. 현재 Program, NoteView, DesktopNoteHost 및 NativeMethods로 첫 prototype을 구현했다. 0.3.0에서 NoteRecord, RtfDocumentCodec, AutosaveCoordinator, FileNoteRepository로 메모 하나 저장을 추가했다. 0.4.0에서 NoteWorkspace·NoteSession·NoteSurface·TrayController·NoteListWindow로 여러 메모·트레이·숨김을 구현했다. 0.5.0에서 휴지통 이동·복원·영구 삭제와 스키마 3의 DeletedAtUtc를 추가했다. MVVM과 자동 실행·업데이트는 후속 항목이다. 요구사항은 `REQUIREMENTS.md`, 작업 상태는 `BACKLOG.md`, 실제 구조는 README를 기준으로 한다.
+이 문서는 전체 제품의 초기 설계다. 현재 Program, NoteView, DesktopNoteHost 및 NativeMethods로 첫 prototype을 구현했다. 0.3.0에서 NoteRecord, RtfDocumentCodec, AutosaveCoordinator, FileNoteRepository로 메모 하나 저장을 추가했다. 0.4.0에서 NoteWorkspace·NoteSession·NoteSurface·TrayController·NoteListWindow로 여러 메모·트레이·숨김을 구현했다. 0.5.0에서 휴지통 이동·복원·영구 삭제와 스키마 3의 DeletedAtUtc를 추가했다. 0.6.0에서 현재 계정의 로그인 자동 실행 옵션을 추가했다. MVVM과 업데이트는 후속 항목이다. 요구사항은 `REQUIREMENTS.md`, 작업 상태는 `BACKLOG.md`, 실제 구조는 README를 기준으로 한다.
 
 ## 기술 및 의존성 방향
 
@@ -74,6 +74,14 @@ TrayController는 NotifyIcon·메뉴·아이콘과 목록 창을 정리한다. �
 영구 삭제는 휴지통 항목과 사용자 확인을 요구한다. 저장소는 실제 파일의 삭제 상태를 다시 검증하고 백업·손상 보존본을 먼저, 본체를 마지막에 삭제한다. 백업으로 복구한 휴지통은 삭제 전에 정상 본체로 다시 저장하여 중간 실패 뒤 재시도할 수 있게 한다. 알려진 GUID 기반 파일만 처리하며 재분석 지점은 거부한다. 보관 파일의 일부 삭제가 끝난 뒤 실패할 수 있으므로 되돌릴 수 있는 작업으로 표시하지 않는다.
 
 휴지통은 자동으로 비우지 않는다. 전부 영구 삭제 후 새 시작에서 생성하는 빈 메모는 새 GUID를 사용하여 삭제한 메모 ID를 재사용하지 않는다. 기존 버전의 고정 ID 파일은 그대로 복원한다.
+
+## 0.6.0 로그인 자동 실행
+
+StartupService는 현재 빌드 폴더의 WindowsMemo.exe 절대 경로를 따옴표로 감싸고 --startup 인수만 추가한다. RegistryStartupStore는 HKCU의 Software\Microsoft\Windows\CurrentVersion\Run에서 WindowsMemo 값 하나만 읽거나 변경한다. 기본 등록은 없으며 앱 시작·상태 조회는 레지스트리를 쓰지 않는다. 설정은 Run 값 자체를 기준으로 하여 별도 설정 파일과의 불일치를 피한다.
+
+트레이에서 직접 켜기·끄기를 선택한다. 등록 명령이 다른 실행 위치를 가리키면 자동 교체하지 않고 해제 후 재등록하도록 표시한다. 실패 시 실제 등록 상태를 다시 읽으며 모르는 상태를 켜짐으로 표시하지 않는다. 일반 창 진단은 서비스 없이 옵션을 비활성화한다.
+
+--startup은 중복 실행 안내를 띄우지 않고, 숨김 메모만 있으면 목록을 자동으로 열지 않는다. 탐색기의 바탕화면 표면 준비를 최대 10회·1초 간격으로 기다린 후 복원하며 대기 중 메모 생성·종료 작업을 중복 수행하지 않는다. 실제 로그인 시 Windows 시작 앱 설정·정책에 의한 실행 차단은 별도 확인이 필요하다. 저장 형식은 스키마 3을 유지한다.
 
 ## 저장 모델
 

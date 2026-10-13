@@ -11,7 +11,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args.Any(a => a is not "--window"))
+        bool startup = args.Contains("--startup");
+        if (args.Any(a => a is not ("--window" or "--startup")) || (startup && args.Contains("--window")))
         {
             MessageBox.Show("일반 창 진단 모드는 --window로 실행하세요.", "Windows 메모");
             return 2;
@@ -20,7 +21,7 @@ internal static class Program
         using var instance = new Mutex(true, "Local\\WindowsMemo.Prototype", out bool isFirst);
         if (!isFirst)
         {
-            MessageBox.Show("메모 앱이 이미 실행 중입니다. 트레이의 Windows 메모에서 메모 목록을 여세요.", "Windows 메모");
+            if (!startup) MessageBox.Show("메모 앱이 이미 실행 중입니다. 트레이의 Windows 메모에서 메모 목록을 여세요.", "Windows 메모");
             return 0;
         }
         try
@@ -29,15 +30,21 @@ internal static class Program
             string root = diagnostic ? Path.Combine(FileNoteRepository.DefaultRoot, "Diagnostic") : FileNoteRepository.DefaultRoot;
             using var workspace = new NoteWorkspace(root, (view, bounds) => diagnostic
                 ? new WindowNoteSurface(view, bounds) : new DesktopNoteSurface(view, bounds));
-            using var tray = new TrayController(app, workspace);
+            using var tray = new TrayController(app, workspace, diagnostic ? null : StartupService.ForCurrentBuild());
             app.Startup += async (_, _) =>
             {
                 try
                 {
                     // Keep WPF dispatcher continuations even when the tray uses WinForms.
                     SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(app.Dispatcher));
-                    await workspace.InitializeAsync();
-                    if (workspace.Items.All(item => item.Hidden || item.Error is not null)) tray.ShowList();
+                    await workspace.InitializeAsync(startup ? async () =>
+                    {
+                        // Explorer may not have created the desktop view yet at logon.
+                        for (int attempt = 0; attempt < 10 && WindowsMemo.Interop.DesktopNoteHost.FindDesktopView() == 0; attempt++)
+                            await Task.Delay(1000);
+                    } : null);
+                    if (workspace.Items.All(item => item.Hidden || item.Error is not null)
+                        && (!startup || workspace.Items.Any(item => item.Error is not null))) tray.ShowList();
                     if (workspace.Items.Any(item => item.Error is not null)) MessageBox.Show("일부 메모를 복원하지 못했습니다. 파일은 보존되며 목록에서 다시 시도할 수 있습니다.", "메모 복원 확인");
                 }
                 catch (Exception ex) when (NoteWorkspace.IsNoteError(ex))
