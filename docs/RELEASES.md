@@ -96,3 +96,13 @@ UpdaterService가 확인·다운로드·대기 상태를 관리하고 앱 종료
 - [ ] 데이터 마이그레이션 실패 시 원본과 백업을 보존한다.
 - [ ] 제품 버전, 설치 패키지 버전, 릴리스 태그가 일치한다.
 - [ ] SECURITY.md의 배포 보안 기준과 STABILITY.md의 반복·장시간 검증을 만족한다.
+
+## 0.7.0 prototype 설치 준비 (WM-010B1)
+
+Velopack와 vpk 1.2.161을 고정하고 앱 시작의 첫 동작으로 VelopackApp.Run을 배치했다. 설치용 ID는 WindowsMemoApp이며 기본 설치 루트는 %LOCALAPPDATA%\WindowsMemoApp, 데이터는 기존 %LOCALAPPDATA%\WindowsMemo\Notes다. 이 ID는 이후 업데이트에서도 유지해야 한다. 설치 파일 생성과 업데이트 적용은 구분한다. 현재 UpdateManager·원격 확인·다운로드·적용 코드는 없다.
+
+package-installer.ps1은 검증된 ZIP payload에서 설치 EXE와 full nupkg 및 win 피드를 만든다. .NET 10 x64 Desktop 런타임 bootstrap과 시작 메뉴 바로가기를 설정했다. 설치기는 앱을 자동 실행하므로 설치 전 기존 앱을 저장 후 종료한다. 개발 폴더의 자동 실행 등록은 설치본으로 자동 이전하지 않는다. 설치본에서 기존 등록을 해제하고 재등록해야 한다.
+
+수동 installer CI는 artifact만 생성하며 Releases 업로드는 하지 않는다. 파일 해시는 손상 확인용이다. 게시자 서명·공개/비공개 배포 방식·설치와 제거 시 데이터 보존·두 버전 간 업데이트·런타임 없는 머신 검증은 후속으로 남긴다. [검증 기록](results/INSTALLER-10B1.md).
+
+참조: [Velopack 시작 훅](https://docs.velopack.io/integrating/overview), [CLI pack](https://docs.velopack.io/reference/cli/content/vpk-windows), [런타임 bootstrap](https://docs.velopack.io/packaging/bootstrapping), [설치 위치](https://docs.velopack.io/packaging/installer), [고정 패키지](https://www.nuget.org/packages/Velopack/1.2.161).

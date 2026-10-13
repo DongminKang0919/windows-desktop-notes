@@ -11,6 +11,9 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // Installer hooks must finish before WPF, data loading, or the instance mutex.
+        Velopack.VelopackApp.Build().Run();
+
         bool startup = args.Contains("--startup");
         if (args.Any(a => a is not ("--window" or "--startup")) || (startup && args.Contains("--window")))
         {

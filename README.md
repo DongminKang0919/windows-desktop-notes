@@ -4,7 +4,7 @@
 
 다른 프로그램을 사용할 때는 창 뒤에 놓이고, 바탕화면 보기에서는 메모를 바로 확인하고 편집할 수 있도록 만들고 있습니다. C#과 WPF로 개발하며 메모는 이 PC에 저장합니다.
 
-> 현재 버전은 **0.6.0 prototype**입니다. 여러 메모·트레이·숨김 상태 복원·휴지통·로그인 자동 실행 옵션을 구현했으며, Windows x64 ZIP 패키징을 지원하며, 설치 프로그램과 정식 릴리스는 아직 제공하지 않습니다. 바탕화면 부착은 Windows 탐색기의 내부 창 구조에 의존하므로 환경에 따라 동작이 달라질 수 있습니다.
+> 현재 버전은 **0.7.0 prototype**입니다. 여러 메모·트레이·숨김 상태 복원·휴지통·로그인 자동 실행 옵션을 구현했으며, Windows x64 ZIP과 prototype 설치 파일 생성을 지원합니다. 설치·업데이트 실행 검토와 정식 릴리스는 남아 있습니다. 바탕화면 부착은 Windows 탐색기의 내부 창 구조에 의존하므로 환경에 따라 동작이 달라질 수 있습니다.
 
 ## 주요 기능
 
@@ -50,7 +50,7 @@ dotnet build WindowsMemo.slnx --configuration Release
 
 ## ZIP 패키지 만들기
 
-프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정에서 읽으며, 현재 앱 버전은 0.6.0을 유지합니다.
+프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정에서 읽으며, 현재 앱 버전은 0.7.0입니다.
 
 ```powershell
 .\scripts\package.ps1
@@ -65,6 +65,16 @@ ZIP 전체를 풀고 `WindowsMemo.exe`를 실행합니다. **.NET 10 Desktop Run
 `scripts/verify-package.ps1 -ZipPath <ZIP 경로>`로 구성과 해시를 확인하고, `scripts/test-package.ps1 -ZipPath <ZIP 경로>`로 변조·위험 경로 거부를 확인할 수 있습니다. 해시는 손상 확인용이며 게시자 서명을 대신하지 않습니다.
 
 [Build prototype ZIP](.github/workflows/package.yml)은 GitHub Actions 수동 실행으로 다운로드용 ZIP과 체크섬을 14일 보관하도록 구성했습니다. GitHub Release 게시·설치·자동 업데이트는 수행하지 않습니다. 상세는 [패키징 검증 기록](docs/results/PACKAGE-10A.md)을 참고해 주세요.
+
+## prototype 설치 파일 만들기
+
+```powershell
+.\scripts\package-installer.ps1 -ShellProbe
+```
+
+ZIP 검증 후 Velopack으로 설치 EXE, full 업데이트 패키지와 피드를 `artifacts/package-GUID/installer`에 만듭니다. 설치 루트는 `%LOCALAPPDATA%\WindowsMemoApp`, 메모는 기존 `%LOCALAPPDATA%\WindowsMemo\Notes`로 분리합니다. .NET 10 Desktop Runtime x64가 없으면 설치기가 다운로드하도록 설정했습니다. 설치기는 완료 후 앱을 실행합니다.
+
+`scripts/verify-installer.ps1 -ReleaseDirectory <폴더> -ExpectedVersion 0.7.0`으로 파일·피드·payload 해시를 검사하고, `scripts/test-installer.ps1 -ReleaseDirectory <폴더>`로 변조 거부를 확인합니다. [수동 installer CI](.github/workflows/installer.yml)는 artifact만 생성합니다. **서명되지 않은 prototype이며 자동 업데이트 기능과 실제 설치·제거·버전 간 업데이트 검증은 남아 있습니다.** 상세는 [검증 기록](docs/results/INSTALLER-10B1.md)을 참고해 주세요.
 
 ## 사용 방법
 
@@ -96,7 +106,7 @@ ZIP 전체를 풀고 `WindowsMemo.exe`를 실행합니다. **.NET 10 Desktop Run
 
 ## 현재 검증 범위
 
-Windows 빌드 26200.9457, x64 환경에서 0.6.0 Release 빌드와 검증 **53개**를 통과했습니다(자동 52개 + 실제 바탕화면 호스트 1개). 기존 저장·복구와 여러 메모 데이터 격리·숨김·재표시·종료 실패·반복 해제·저장 형식 호환성, 휴지통 왕복·처리 실패·영구 삭제·삭제 후 재실행, 자동 실행 등록·실패·경로 처리와 격리 레지스트리 왕복을 포함합니다.
+Windows 빌드 26200.9457, x64 환경에서 0.7.0 Release 빌드와 검증 **53개**를 통과했습니다(자동 52개 + 실제 바탕화면 호스트 1개). 기존 저장·복구와 여러 메모 데이터 격리·숨김·재표시·종료 실패·반복 해제·저장 형식 호환성, 휴지통 왕복·처리 실패·영구 삭제·삭제 후 재실행, 자동 실행 등록·실패·경로 처리와 격리 레지스트리 왕복을 포함합니다.
 
 Win+D, 실제 한글 조합, 창 복원 후 표시 순서와 바탕화면 아이콘 클릭은 0.1.0에서 사용자 확인을 받았습니다. **0.6.0의 실제 로그인·자동 실행 옵션 클릭, 휴지통·영구 삭제 확인 UI, 트레이·목록·닫기/재표시·앱 재실행, 입력·Win+D 회귀, 탐색기 재시작, 여러 모니터·혼합 배율, 가상 데스크톱, 절전 복귀, 장시간 상주 검증은 남아 있습니다.**
 
@@ -104,7 +114,7 @@ Win+D, 실제 한글 조합, 창 복원 후 표시 순서와 바탕화면 아이
 
 ## 개발과 테스트
 
-외부 NuGet 패키지와 별도 테스트 프레임워크 없이 구성했습니다. 테스트는 `dotnet test` 대신 다음 실행 프로그램의 PASS/FAIL과 종료 코드로 확인합니다.
+설치 시작 훅에 Velopack 1.2.161을 사용하며 NuGet 잠금 파일로 의존성을 관리합니다. 패키징 도구 vpk도 같은 버전으로 고정합니다. 별도 테스트 프레임워크는 사용하지 않습니다. 테스트는 `dotnet test` 대신 다음 실행 프로그램의 PASS/FAIL과 종료 코드로 확인합니다.
 
 ```powershell
 dotnet build WindowsMemo.slnx --configuration Release

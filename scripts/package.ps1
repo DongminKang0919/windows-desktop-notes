@@ -50,7 +50,7 @@ try {
     }
     $sdkVersion = & $sdkPath --version
     if ($LASTEXITCODE -ne 0) { throw 'SDK 버전을 확인하지 못했습니다.' }
-    & $sdkPath build WindowsMemo.slnx --configuration Release --nologo
+    & $sdkPath build WindowsMemo.slnx --configuration Release --nologo -p:RestoreLockedMode=true
     if ($LASTEXITCODE -ne 0) { throw 'Release 빌드에 실패했습니다.' }
     $testArguments = @('tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll')
     if ($ShellProbe) { $testArguments += '--shell-probe' }
@@ -58,7 +58,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw '검증에 실패하여 패키지를 생성하지 않습니다.' }
 
     New-Item -ItemType Directory -Path $publishRoot -ErrorAction Stop | Out-Null
-    & $sdkPath publish src/WindowsMemo/WindowsMemo.csproj --configuration Release --runtime win-x64 --self-contained false --output $publishRoot --nologo -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false
+    & $sdkPath publish src/WindowsMemo/WindowsMemo.csproj --configuration Release --runtime win-x64 --self-contained false --output $publishRoot --nologo -p:RestoreLockedMode=true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false
     if ($LASTEXITCODE -ne 0) { throw 'Windows x64 publish에 실패했습니다.' }
     foreach ($required in @('WindowsMemo.exe', 'WindowsMemo.dll', 'WindowsMemo.deps.json', 'WindowsMemo.runtimeconfig.json')) {
         if (-not (Test-Path -LiteralPath (Join-Path $publishRoot $required) -PathType Leaf)) { throw "필수 실행 파일이 없습니다: $required" }

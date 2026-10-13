@@ -34,7 +34,7 @@ jobs:
         with:
           global-json-file: global.json
       - name: Build Release
-        run: dotnet build WindowsMemo.slnx --configuration Release --nologo
+        run: dotnet build WindowsMemo.slnx --configuration Release --nologo -p:RestoreLockedMode=true
       # Executable test harness; dotnet test does not run these checks.
       # --shell-probe requires a logged-in desktop and stays a local check.
       - name: Run automated checks
