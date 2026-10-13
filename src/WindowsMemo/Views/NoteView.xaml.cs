@@ -12,6 +12,8 @@ public partial class NoteView : UserControl, IDisposable
     public const int MaxCharacters = 100_000;
     private bool _disposed;
     private bool _rollingBack;
+    public event EventHandler? DocumentChanged;
+    public event EventHandler? SaveRequested;
     public event EventHandler? CloseRequested;
     public event EventHandler? ReconnectRequested;
     public event EventHandler<Vector>? MoveRequested;
@@ -23,6 +25,13 @@ public partial class NoteView : UserControl, IDisposable
         InitializeComponent();
         DataObject.AddPastingHandler(Editor, OnPasting);
     }
+
+    public void SetSaveStatus(string text, bool canRetry)
+    {
+        SaveLabel.Text = text;
+        SaveButton.Visibility = canRetry ? Visibility.Visible : Visibility.Collapsed;
+    }
+    private void Save_OnClick(object sender, RoutedEventArgs e) => SaveRequested?.Invoke(this, EventArgs.Empty);
 
     public void SetMode(string text) => ModeLabel.Text = text;
     public void SetRecoveryMode(string text, bool canRetry)
@@ -81,6 +90,7 @@ public partial class NoteView : UserControl, IDisposable
             NoticeLabel.Text = "입력 한도를 초과하여 마지막 변경을 취소했습니다.";
         }
         else NoticeLabel.Text = "외부 붙여넣기는 텍스트만 허용합니다.";
+        DocumentChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public void ToggleBold() => Execute(EditingCommands.ToggleBold);
@@ -112,6 +122,8 @@ public partial class NoteView : UserControl, IDisposable
         if (_disposed) return;
         _disposed = true;
         DataObject.RemovePastingHandler(Editor, OnPasting);
+        DocumentChanged = null;
+        SaveRequested = null;
         CloseRequested = null;
         ReconnectRequested = null;
         MoveRequested = null;

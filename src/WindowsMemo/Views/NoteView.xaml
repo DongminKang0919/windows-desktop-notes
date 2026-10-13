@@ -23,7 +23,7 @@
       <Border Background="Transparent"><TextBlock Text="Windows 메모 · 시제품" Margin="12,0" VerticalAlignment="Center" FontWeight="SemiBold" /></Border>
      </ControlTemplate></Thumb.Template>
     </Thumb>
-    <Button Content="닫기" HorizontalAlignment="Right" Click="Close_OnClick" ToolTip="시제품 종료" />
+    <Button Content="닫기" HorizontalAlignment="Right" Click="Close_OnClick" ToolTip="저장 후 앱 종료" />
    </Grid>
    <WrapPanel Grid.Row="1" Margin="6">
     <Button Content="굵게" FontWeight="Bold" Click="Bold_OnClick" ToolTip="선택 영역 굵게 (Ctrl+B)" />
@@ -41,7 +41,8 @@
    </RichTextBox>
    <Grid Grid.Row="3" Margin="10,0,6,6">
     <StackPanel Margin="0,0,20,0">
-     <TextBlock Text="저장하지 않는 기술 검증 시제품" Foreground="#8A3B12" />
+     <TextBlock x:Name="SaveLabel" Text="저장 준비 중" Foreground="#5E5A45" TextWrapping="Wrap" />
+     <Button x:Name="SaveButton" Content="저장 다시 시도" Visibility="Collapsed" HorizontalAlignment="Left" Click="Save_OnClick" />
      <TextBlock x:Name="ModeLabel" FontSize="11" Foreground="#5E5A45" TextWrapping="Wrap" />
      <Button x:Name="ReconnectButton" Content="바탕화면 다시 연결" Visibility="Collapsed" HorizontalAlignment="Left" Click="Reconnect_OnClick" />
      <TextBlock x:Name="NoticeLabel" FontSize="11" Foreground="#8A3B12" TextWrapping="Wrap" />

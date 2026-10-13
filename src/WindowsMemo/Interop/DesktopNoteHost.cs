@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using WindowsMemo.Views;
+using WindowsMemo.Models;
 
 namespace WindowsMemo.Interop;
 
@@ -43,7 +44,10 @@ public sealed class DesktopNoteHost : IDisposable
         _timer.Tick += TimerTick;
     }
 
-    public void Open(bool visible = true)
+    public event EventHandler? BoundsChanged;
+    public NoteBounds CaptureBounds() => new(_bounds.X, _bounds.Y, _bounds.Width / _scale, _bounds.Height / _scale, _scale);
+
+    public void Open(bool visible = true, NoteBounds? restoredBounds = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_opened) throw new InvalidOperationException("메모 창은 이미 열려 있습니다.");
@@ -52,7 +56,9 @@ public sealed class DesktopNoteHost : IDisposable
         if (_parent == 0 || !NativeMethods.IsWindow(_parent))
             throw new InvalidOperationException("Windows 바탕화면 창을 찾지 못했습니다.");
         _scale = GetScale(_parent);
-        _bounds = new PixelBounds(48, 64, (int)(420 * _scale), (int)(480 * _scale));
+        _bounds = restoredBounds is null
+            ? new PixelBounds(48, 64, (int)(420 * _scale), (int)(480 * _scale))
+            : new PixelBounds((int)restoredBounds.X, (int)restoredBounds.Y, (int)(restoredBounds.Width * _scale), (int)(restoredBounds.Height * _scale));
         try
         {
             AttachSurface();
@@ -301,6 +307,7 @@ public sealed class DesktopNoteHost : IDisposable
         var origin = ParentOrigin();
         if (!NativeMethods.SetWindowPos(Handle, 0, _bounds.X - origin.X, _bounds.Y - origin.Y, _bounds.Width, _bounds.Height, NativeMethods.SwpNoActivate))
             throw new Win32Exception(Marshal.GetLastWin32Error());
+        BoundsChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private static double GetScale(nint hwnd) => Math.Max(96, NativeMethods.GetDpiForWindow(hwnd)) / 96.0;
@@ -329,6 +336,7 @@ public sealed class DesktopNoteHost : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        BoundsChanged = null;
         _timer.Stop();
         _timer.Tick -= TimerTick;
         _view.MoveRequested -= OnMove;
