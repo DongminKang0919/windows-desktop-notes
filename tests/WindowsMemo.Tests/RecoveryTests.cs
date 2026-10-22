@@ -192,6 +192,8 @@ internal static class RecoveryTests
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern nint SendMessage(nint hwnd, uint message, nint wParam, nint lParam);
 
+    internal static void CloseTestWindow(nint handle) => SendMessage(handle, 0x0010, 0, 0);
+
     private static void DrainMessages() => System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
         () => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
 

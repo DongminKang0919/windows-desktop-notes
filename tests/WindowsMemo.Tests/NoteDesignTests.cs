@@ -41,6 +41,22 @@ internal static class NoteDesignTests
             var body = new TextRange(start, start.GetNextInsertionPosition(LogicalDirection.Forward)!);
             Assert(body.GetPropertyValue(TextElement.FontWeightProperty).Equals(FontWeights.Bold));
         });
+        check("저장 실패 안내: 접기 차단·재시도 유지·성공 후 접기 복원", () =>
+        {
+            using var view = new NoteView();
+            view.SetCollapsed(true); view.SetSaveStatus("저장 실패", true);
+            view.SetCollapsed(true);
+            Assert(!view.IsCollapsed);
+            Assert(((FrameworkElement)view.FindName("Footer")).Visibility == Visibility.Visible);
+            Assert(((Button)view.FindName("SaveButton")).Visibility == Visibility.Visible);
+            var menu = ((Button)view.FindName("MoreButton")).ContextMenu!;
+            var collapse = menu.Items.OfType<MenuItem>().Single(item => item.Header.ToString()!.StartsWith("접기 /"));
+            Assert(!collapse.IsEnabled);
+            view.SetSaveStatus("저장 재시도 중", true); view.SetCollapsed(true);
+            Assert(!view.IsCollapsed && !collapse.IsEnabled);
+            view.SetSaveStatus("저장 완료", false); view.SetCollapsed(true);
+            Assert(view.IsCollapsed && collapse.IsEnabled);
+        });
         check("포스트잇: 접힘·저장 실패 표시·색상과 320 DIP 레이아웃", () =>
         {
             using var view = new NoteView(); view.InsertPlainText("오늘의 생각\n한글로 적는 작은 기록");

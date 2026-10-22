@@ -13,6 +13,8 @@ public partial class NoteView : UserControl, IDisposable
     private bool _disposed;
     private bool _rollingBack;
     private int _textLength;
+    private bool _saveNeedsAttention;
+    private MenuItem? _collapseItem;
     public string Paper { get; private set; } = "Butter";
     public bool IsCollapsed { get; private set; }
     public static readonly DependencyProperty NoteTitleProperty = DependencyProperty.Register(nameof(NoteTitle), typeof(string), typeof(NoteView), new PropertyMetadata("메모"));
@@ -42,6 +44,12 @@ public partial class NoteView : UserControl, IDisposable
 
     public void SetSaveStatus(string text, bool canRetry)
     {
+        _saveNeedsAttention = canRetry;
+        if (_collapseItem is not null)
+        {
+            _collapseItem.IsEnabled = !canRetry;
+            _collapseItem.ToolTip = canRetry ? "저장에 성공한 뒤 메모를 접을 수 있습니다." : null;
+        }
         SaveLabel.Text = text;
         SaveLabel.Visibility = canRetry ? Visibility.Visible : Visibility.Collapsed;
         SaveButton.Visibility = canRetry ? Visibility.Visible : Visibility.Collapsed;
@@ -150,6 +158,8 @@ public partial class NoteView : UserControl, IDisposable
     }
     public void SetCollapsed(bool collapsed)
     {
+        // Keep the failure message and retry action reachable until a successful save.
+        if (collapsed && _saveNeedsAttention) return;
         if (IsCollapsed == collapsed) return;
         IsCollapsed = collapsed;
         Body.Visibility = Footer.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
@@ -199,7 +209,9 @@ public partial class NoteView : UserControl, IDisposable
             colors.Items.Add(item);
         }
         menu.Items.Add(colors);
-        menu.Items.Add(Item("접기 / 펼치기 (상단 더블클릭)", () => SetCollapsed(!IsCollapsed), "−"));
+        _collapseItem = Item("접기 / 펼치기 (상단 더블클릭)", () => SetCollapsed(!IsCollapsed), "−");
+        ToolTipService.SetShowOnDisabled(_collapseItem, true);
+        menu.Items.Add(_collapseItem);
         var archive = Item("보관하기", () => ArchiveRequested?.Invoke(this, EventArgs.Empty));
         archive.Icon = new System.Windows.Shapes.Path { Data = Geometry.Parse("M1,3 L15,3 15,6 1,6 Z M3,6 L3,14 13,14 13,6 M6,9 L10,9"), Stroke = NoteTheme.Ink, StrokeThickness = 1.3, Width = 17, Height = 17 };
         menu.Items.Add(archive);
@@ -297,6 +309,7 @@ public partial class NoteView : UserControl, IDisposable
         DataObject.RemovePastingHandler(Editor, OnPasting);
         PreviewKeyDown -= OnViewKeyDown;
         if (MoreButton.ContextMenu is { } menu) { menu.IsOpen = false; menu.Items.Clear(); MoreButton.ContextMenu = null; }
+        _collapseItem = null;
         AppearanceChanged = null;
         ArchiveRequested = null;
         ArchiveListRequested = null;
