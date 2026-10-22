@@ -44,7 +44,9 @@ internal static class NoteListTests
         private void Seed(Guid id, string text, bool archived = false, bool trashed = false)
         {
             var now = DateTimeOffset.UtcNow;
-            var record = new NoteRecord(4, id, RtfDocumentCodec.Save(new FlowDocument(new Paragraph(new Run(text)))),
+            // Use the editor's paragraph/line-break insertion, as real saved notes do.
+            using var editor = new NoteView(); Require(editor.InsertPlainText(text));
+            var record = new NoteRecord(4, id, RtfDocumentCodec.Save(editor.TextEditor.Document),
                 new(48, 64, 320, 300), now, now, Hidden: true, Archived: archived, DeletedAtUtc: trashed ? now : null);
             new FileNoteRepository(Root, id).Save(record);
         }
