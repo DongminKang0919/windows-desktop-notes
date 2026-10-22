@@ -13,6 +13,19 @@ internal static class NoteDesignTests
 {
     public static void Run(Action<string, Action> check)
     {
+        check("입력 캐시: 문서 교체·선택 교체·100,000자 제한과 긴 제목", () =>
+        {
+            using var view = new NoteView();
+            Assert(view.InsertPlainText(new string('가', NoteView.MaxCharacters - 2)));
+            Assert(view.NoteTitle.Length == 80 && !view.InsertPlainText("초과"));
+            view.TextEditor.SelectAll(); Assert(view.InsertPlainText("교체"));
+            view.TextEditor.Document = new FlowDocument(new Paragraph(new Run(new string('나', NoteView.MaxCharacters - 2))));
+            Assert(!view.InsertPlainText("초과"));
+            view.TextEditor.SelectAll(); Assert(view.InsertPlainText("새 문서"));
+            Assert(view.NoteTitle == "새 문서");
+            view.SetPaper("Sage"); int changes = 0; view.AppearanceChanged += (_, _) => changes++;
+            view.SetPaper("Sage"); Assert(changes == 0);
+        });
         check("체크리스트: 완료 전환·제거·서식 보존·RTF 왕복", () =>
         {
             using var view = new NoteView();

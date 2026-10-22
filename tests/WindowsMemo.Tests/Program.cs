@@ -16,6 +16,9 @@ internal static class Program
     {
         try
         {
+            if (args.Contains("--performance-probe")) { PerformanceProbe.Run(); return 0; }
+            if (args.Contains("--stability-probe")) { StabilityProbe.Run(); return 0; }
+            if (args.Length == 2 && args[0] == "--validate-update-package") { UpdatePackageTests.ValidateKnownPackage(args[1]); return 0; }
             if (args.Contains("--render-ui-only")) { NoteDesignTests.RenderPreviews(); return 0; }
             if (args.Contains("--design-only")) { NoteDesignTests.Run(Check); return 0; }
             Check("한글 및 여러 줄 삽입", () =>
@@ -113,6 +116,7 @@ internal static class Program
             WorkspaceTests.Run(Check);
             StartupTests.Run(Check);
             UpdateTests.Run(Check);
+            UpdatePackageTests.Run(Check);
             NoteDesignTests.Run(Check);
             if (args.Contains("--render-ui")) NoteDesignTests.RenderPreviews();
             if (args.Contains("--shell-probe"))

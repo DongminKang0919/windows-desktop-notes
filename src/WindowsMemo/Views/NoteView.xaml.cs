@@ -12,6 +12,7 @@ public partial class NoteView : UserControl, IDisposable
     public const int MaxCharacters = 100_000;
     private bool _disposed;
     private bool _rollingBack;
+    private int _textLength;
     public string Paper { get; private set; } = "Butter";
     public bool IsCollapsed { get; private set; }
     public static readonly DependencyProperty NoteTitleProperty = DependencyProperty.Register(nameof(NoteTitle), typeof(string), typeof(NoteView), new PropertyMetadata("메모"));
@@ -36,6 +37,7 @@ public partial class NoteView : UserControl, IDisposable
         DataObject.AddPastingHandler(Editor, OnPasting);
         BuildMenu();
         PreviewKeyDown += OnViewKeyDown;
+        RefreshTitle();
     }
 
     public void SetSaveStatus(string text, bool canRetry)
@@ -71,7 +73,7 @@ public partial class NoteView : UserControl, IDisposable
     }
 
     private bool CanInsert(int length) => length <= MaxCharacters &&
-        new TextRange(Editor.Document.ContentStart, Editor.Document.ContentEnd).Text.Length
+        _textLength
         - Editor.Selection.Text.Length + length <= MaxCharacters;
 
     private void OnPasting(object sender, DataObjectPastingEventArgs e)
@@ -98,15 +100,17 @@ public partial class NoteView : UserControl, IDisposable
     private void Editor_OnTextChanged(object sender, TextChangedEventArgs e)
     {
         if (_rollingBack || Editor is null || NoticeLabel is null) return;
-        if (new TextRange(Editor.Document.ContentStart, Editor.Document.ContentEnd).Text.Length > MaxCharacters && Editor.CanUndo)
+        string text = new TextRange(Editor.Document.ContentStart, Editor.Document.ContentEnd).Text;
+        if (text.Length > MaxCharacters && Editor.CanUndo)
         {
             _rollingBack = true;
             try { Editor.Undo(); }
             finally { _rollingBack = false; }
+            text = new TextRange(Editor.Document.ContentStart, Editor.Document.ContentEnd).Text;
             NoticeLabel.Text = "입력 한도를 초과하여 마지막 변경을 취소했습니다.";
         }
         else NoticeLabel.Text = "";
-        RefreshTitle();
+        RefreshTitle(text);
         DocumentChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -140,6 +144,7 @@ public partial class NoteView : UserControl, IDisposable
     public void SetPaper(string paper)
     {
         if (!NoteTheme.IsPaper(paper)) throw new ArgumentException("지원하지 않는 종이색입니다.", nameof(paper));
+        if (Paper == paper) return;
         Paper = paper; PaperBorder.Background = NoteTheme.Paper(paper);
         AppearanceChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -150,11 +155,17 @@ public partial class NoteView : UserControl, IDisposable
         Body.Visibility = Footer.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         AppearanceChanged?.Invoke(this, EventArgs.Empty);
     }
-    public void RefreshTitle()
+    public void RefreshTitle() => RefreshTitle(new TextRange(Editor.Document.ContentStart, Editor.Document.ContentEnd).Text);
+    private void RefreshTitle(string text)
     {
-        string text = new TextRange(Editor.Document.ContentStart, Editor.Document.ContentEnd).Text.Trim();
-        NoteTitle = text.Length == 0 ? "메모" : text.Split(['\r', '\n'], 2)[0].TrimStart('☐', '☑', ' ');
-        Placeholder.Visibility = text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        _textLength = text.Length;
+        var content = text.AsSpan().Trim();
+        int newline = content.IndexOfAny('\r', '\n');
+        var heading = (newline < 0 ? content : content[..newline]).TrimStart("☐☑ ");
+        int length = Math.Min(80, heading.Length);
+        if (length > 0 && length < heading.Length && char.IsHighSurrogate(heading[length - 1]) && char.IsLowSurrogate(heading[length])) length--;
+        NoteTitle = length == 0 ? "메모" : heading[..length].ToString();
+        Placeholder.Visibility = content.IsEmpty ? Visibility.Visible : Visibility.Collapsed;
     }
     private void Header_OnMouseDown(object sender, MouseButtonEventArgs e)
     { if (e.ClickCount == 2) { SetCollapsed(!IsCollapsed); e.Handled = true; } }
@@ -209,8 +220,8 @@ public partial class NoteView : UserControl, IDisposable
     }
     private static bool Checklist(Paragraph paragraph)
     {
-        string text = new TextRange(paragraph.ContentStart, paragraph.ContentEnd).Text;
-        return text.StartsWith("☐ ", StringComparison.Ordinal) || text.StartsWith("☑ ", StringComparison.Ordinal);
+        string prefix = MarkerRange(paragraph, 2).Text;
+        return prefix is "☐ " or "☑ ";
     }
     private static TextRange MarkerRange(Paragraph paragraph, int characters)
     {

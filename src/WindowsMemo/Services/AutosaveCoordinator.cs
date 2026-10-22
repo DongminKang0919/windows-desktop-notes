@@ -19,6 +19,8 @@ public sealed class AutosaveCoordinator : IDisposable
     private long _version, _savedVersion;
     private DateTimeOffset _firstChange, _lastChange, _retryAfter;
     private bool _disposed;
+    private bool _saveFailed;
+    internal bool IsScheduled => _timer.IsEnabled;
 
     public AutosaveCoordinator(NoteView view, FileNoteRepository repository, Func<NoteBounds> bounds, DateTimeOffset created, Func<bool>? hidden = null, Func<DateTimeOffset?>? deleted = null, Func<bool>? archived = null)
     {
@@ -29,7 +31,6 @@ public sealed class AutosaveCoordinator : IDisposable
         _view.SaveRequested += OnSave;
         _timer = new DispatcherTimer(DispatcherPriority.Background, view.Dispatcher) { Interval = TimeSpan.FromMilliseconds(250) };
         _timer.Tick += OnTick;
-        _timer.Start();
         _view.SetSaveStatus("저장 완료", false);
     }
 
@@ -40,7 +41,8 @@ public sealed class AutosaveCoordinator : IDisposable
         if (_version == _savedVersion) _firstChange = now;
         _lastChange = now;
         _version++;
-        _view.SetSaveStatus("저장 대기 중", false);
+        if (!_saveFailed) _view.SetSaveStatus("저장 대기 중", false);
+        _timer.Start();
     }
     private void OnChange(object? sender, EventArgs e) => MarkChanged();
     private async void OnSave(object? sender, EventArgs e) => await FlushAsync();
@@ -77,18 +79,21 @@ public sealed class AutosaveCoordinator : IDisposable
         long version = _version;
         try
         {
-            _view.SetSaveStatus("저장 중…", false);
+            _view.SetSaveStatus(_saveFailed ? "저장 재시도 중…" : "저장 중…", _saveFailed);
             var record = new NoteRecord(4, _repository.Id, RtfDocumentCodec.Save(_view.TextEditor.Document),
                 _bounds(), _created, DateTimeOffset.UtcNow, _hidden(), _deleted(), _view.Paper, _view.IsCollapsed, _archived());
             await Task.Run(() => _repository.Save(record));
             _savedVersion = version;
+            _saveFailed = false;
             _retryAfter = default;
+            if (_version == version) _timer.Stop();
             if (!_disposed) _view.SetSaveStatus(_version == version ? "저장 완료" : "저장 대기 중", false);
             return true;
         }
         catch (Exception ex) when (FileNoteRepository.IsStorageError(ex))
         {
             _retryAfter = DateTimeOffset.UtcNow.AddSeconds(5);
+            _saveFailed = true;
             if (!_disposed) _view.SetSaveStatus("저장 실패 · 내용을 유지하고 있습니다. 다시 시도하세요.", true);
             return false;
         }

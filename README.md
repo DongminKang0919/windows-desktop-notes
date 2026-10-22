@@ -4,7 +4,7 @@
 
 다른 프로그램을 사용할 때는 창 뒤에 놓이고, 바탕화면 보기에서는 메모를 바로 확인하고 편집할 수 있도록 만들고 있습니다. C#과 WPF로 개발하며 메모는 이 PC에 저장합니다.
 
-> 현재 버전은 **0.9.0 prototype**입니다. 포스트잇 UI·세 가지 종이색·접기·체크리스트·보관함과 실행 취소를 추가했습니다. 기존 여러 메모·서식·휴지통·자동 실행·로컬 시험 업데이트를 유지합니다. 실제 Windows UI와 설치본 업데이트 검증, 정식 릴리스는 남아 있습니다. 바탕화면 부착은 탐색기의 내부 창 구조에 의존하므로 환경에 따라 동작이 달라질 수 있습니다.
+> 현재 버전은 **0.9.1 prototype**입니다. 포스트잇 UI와 기존 기능을 유지하면서 입력·자동 저장·창 영역 갱신의 중복 작업을 줄이고 업데이트 패키지 검사를 보강했습니다. 실제 Windows UI와 설치본 업데이트 검증, 정식 릴리스는 남아 있습니다. 바탕화면 부착은 탐색기의 내부 창 구조에 의존하므로 환경에 따라 동작이 달라질 수 있습니다.
 
 ## 주요 기능
 
@@ -61,7 +61,7 @@ dotnet build WindowsMemo.slnx --configuration Release
 
 ## ZIP 패키지 만들기
 
-프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정에서 읽으며, 현재 앱 버전은 0.9.0입니다.
+프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정에서 읽으며, 현재 앱 버전은 0.9.1입니다.
 
 ```powershell
 .\scripts\package.ps1
@@ -85,7 +85,7 @@ ZIP 전체를 풀고 `WindowsMemo.exe`를 실행합니다. **.NET 10 Desktop Run
 
 ZIP 검증 후 Velopack으로 설치 EXE, full 업데이트 패키지와 피드를 `artifacts/package-GUID/installer`에 만듭니다. 설치 루트는 `%LOCALAPPDATA%\WindowsMemoApp`, 메모는 기존 `%LOCALAPPDATA%\WindowsMemo\Notes`로 분리합니다. .NET 10 Desktop Runtime x64가 없으면 설치기가 다운로드하도록 설정했습니다. 설치기는 완료 후 앱을 실행합니다.
 
-`scripts/verify-installer.ps1 -ReleaseDirectory <폴더> -ExpectedVersion 0.9.0`으로 파일·피드·payload 해시를 검사하고, `scripts/test-installer.ps1 -ReleaseDirectory <폴더>`로 변조 거부를 확인합니다. [수동 installer CI](.github/workflows/installer.yml)는 artifact만 생성합니다. **서명되지 않은 prototype이며 실제 설치·제거·버전 간 업데이트 검증은 남아 있습니다.** 기존 0.7.0 산출물은 [검증 기록](docs/results/INSTALLER-10B1.md)을 참고해 주세요.
+`scripts/verify-installer.ps1 -ReleaseDirectory <폴더> -ExpectedVersion 0.9.1`으로 파일·피드·payload 해시를 검사하고, `scripts/test-installer.ps1 -ReleaseDirectory <폴더>`로 변조 거부를 확인합니다. [수동 installer CI](.github/workflows/installer.yml)는 artifact만 생성합니다. **서명되지 않은 prototype이며 실제 설치·제거·버전 간 업데이트 검증은 남아 있습니다.** 기존 0.7.0 산출물은 [검증 기록](docs/results/INSTALLER-10B1.md)을 참고해 주세요.
 
 ## 로컬 시험 업데이트
 
@@ -129,7 +129,9 @@ ZIP 검증 후 Velopack으로 설치 EXE, full 업데이트 패키지와 피드�
 
 ## 현재 검증 범위
 
-Windows 빌드 26300, x64 환경에서 0.9.0 Release 빌드와 검증 **66개**를 통과했습니다(자동 65개 + 보이지 않는 실제 바탕화면 호스트 1개). 기존 검증에 스키마 호환성·보관/복원/실행 취소·보관 실패·체크리스트 서식 보존·기본 UI 레이아웃을 추가했습니다. 실제 호스트의 부모·WS_CHILD·TopMost 미사용 및 접기/펼치기 크기를 검사했습니다. 100/150/200% 렌더링 이미지를 확인했으며 실제 배율 전환·IME·Win+D 입력 시험과 설치본 업데이트를 대신하지 않습니다.
+Windows 빌드 26300, x64 환경에서 0.9.1 Release 빌드와 검증 **71개**를 통과했습니다(자동 70개 + 보이지 않는 실제 바탕화면 호스트 1개). 저장·복구·보관·입력 제한·업데이트 패키지 경계와 제품 정보 검사를 포함합니다. 0.9.0의 100/150/200% UI 렌더링 확인과 실제 호스트 부모·WS_CHILD·TopMost 미사용·접힘 검증을 유지합니다. 실제 배율 전환·IME·Win+D 입력 시험과 설치본 업데이트를 대신하지 않습니다.
+
+중간 점검에서는 8만 자 본문 200회 입력의 UI 스레드 할당량이 약 70% 감소했습니다. 변경이 없는 메모의 자동 저장 타이머를 멈추고 저장 실패 안내를 저장 성공까지 유지합니다. 복구 타이머·알림 창을 포함한 시험 세션 2,200개 생성·폐기에서 잔존 세션/편집기 참조 0개, GDI/USER 핸들 누적 없음이 관찰됐습니다. Private Bytes 증가와 장시간 시험 제한도 함께 기록했습니다. NuGet 공개 취약점 조회에서는 직접·전이 의존성에 보고된 취약점이 없었습니다(2026-10-22 기준). [측정·보안 검토 및 남은 범위](docs/results/REVIEW-14.md).
 
 Win+D, 실제 한글 조합, 창 복원 후 표시 순서와 바탕화면 아이콘 클릭은 0.1.0에서 사용자 확인을 받았습니다. **0.6.0의 실제 로그인·자동 실행 옵션 클릭, 휴지통·영구 삭제 확인 UI, 트레이·목록·닫기/재표시·앱 재실행, 입력·Win+D 회귀, 탐색기 재시작, 여러 모니터·혼합 배율, 가상 데스크톱, 절전 복귀, 장시간 상주 검증은 남아 있습니다.**
 
