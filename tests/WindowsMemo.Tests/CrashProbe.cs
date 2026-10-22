@@ -106,6 +106,17 @@ internal static class CrashProbe
         if (!child.HasExited) child.Kill();
         await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
     }
+    private static async Task VerifyChild(string id, int version, bool recovered)
+    {
+        using var reader = StartChild(id, "verify", version.ToString(System.Globalization.CultureInfo.InvariantCulture), recovered.ToString());
+        Task<string> output = reader.StandardOutput.ReadToEndAsync(), errors = reader.StandardError.ReadToEndAsync();
+        try
+        {
+            await reader.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
+            Require(reader.ExitCode == 0 && (await output).Trim() == "VERIFIED", "Fresh reader failed: " + await errors);
+        }
+        finally { await StopOwnedChild(reader); }
+    }
     private static async Task RunAsync()
     {
         string report = Path.Combine(AppContext.BaseDirectory, "crash-probe", Guid.NewGuid().ToString("N"));
@@ -113,6 +124,7 @@ internal static class CrashProbe
         using var log = new StreamWriter(Path.Combine(report, "results.jsonl")) { AutoFlush = true };
         void Emit(object value) { string json = JsonSerializer.Serialize(value); Console.WriteLine(json); log.WriteLine(json); }
         Emit(new { stage = "start", version = typeof(NoteView).Assembly.GetName().Version?.ToString(3), report, cases = Cases.Length });
+        string? duplicateRun = null;
         foreach (var test in Cases)
         {
             string id = Guid.NewGuid().ToString("N"), folder = Folder(id);
@@ -138,25 +150,29 @@ internal static class CrashProbe
                 }
                 finally { await StopOwnedChild(child); }
             }
-            using (var reader = StartChild(id, "verify", test.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), test.Recovered.ToString()))
-            {
-                Task<string> output = reader.StandardOutput.ReadToEndAsync(), errors = reader.StandardError.ReadToEndAsync();
-                try
-                {
-                    await reader.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
-                    Require(reader.ExitCode == 0 && (await output).Trim() == "VERIFIED", "Fresh reader failed: " + await errors);
-                }
-                finally { await StopOwnedChild(reader); }
-            }
+            await VerifyChild(id, test.Version, test.Recovered);
             Require(Directory.GetFiles(folder, "*.tmp").Length == test.Temps, "Unexpected temporary file count.");
             string[] damaged = Directory.GetFiles(folder, "*.damaged-*");
             Require(damaged.Length == test.Damaged && damaged.All(path => File.ReadAllText(path) == "damaged-probe-fixture"), "Damaged primary not preserved.");
             bool expectedBackup = test.Seed == "recover" || (test.Seed == "replace" && test.Stop is "Committed" or "Acknowledged");
             Require(File.Exists(repo.BackupPath) == expectedBackup, "Unexpected backup presence.");
             if (expectedBackup) Require(baseline is not null && File.ReadAllBytes(repo.BackupPath).SequenceEqual(baseline), "Last good backup changed.");
+            foreach (string path in Directory.GetFiles(folder, "*.tmp")) File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-2));
+            var cleanup = TemporaryNoteMaintenance.Run(folder, DateTimeOffset.UtcNow, Validate);
+            Require(cleanup.Removed == 0 && Directory.GetFiles(folder, "*.tmp").Length == test.Temps, "Unique interrupted snapshot was deleted.");
+            if (test.Name == "replace-before-commit") duplicateRun = id;
             Emit(new { stage = "pass", test.Name, test.Stop, writerId, expectedVersion = test.Version, test.Recovered, test.Temps, test.Damaged, folder });
         }
-        Emit(new { stage = "complete", passed = Cases.Length });
+        // Once that same interrupted snapshot is durably saved, only its old redundant temporary can go.
+        string duplicateFolder = Folder(duplicateRun!);
+        string pendingPath = Directory.GetFiles(duplicateFolder, "*.tmp").Single();
+        NoteRecord pending;
+        using (var stream = File.OpenRead(pendingPath)) pending = FileNoteRepository.ReadSnapshot(stream);
+        new FileNoteRepository(duplicateFolder).Save(pending with { UpdatedAtUtc = DateTimeOffset.UtcNow });
+        var removed = TemporaryNoteMaintenance.Run(duplicateFolder, DateTimeOffset.UtcNow, Validate);
+        Require(removed.Removed == 1 && !File.Exists(pendingPath), "Redundant interrupted snapshot was not removed.");
+        await VerifyChild(duplicateRun!, 1, false);
+        Emit(new { stage = "complete", passed = Cases.Length, redundantCleanup = true });
     }
     public static void RunChild(string[] args)
     {

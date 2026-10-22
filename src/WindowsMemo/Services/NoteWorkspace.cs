@@ -27,6 +27,7 @@ internal sealed class NoteWorkspace : IDisposable
     private readonly Dictionary<Guid, Entry> _entries = new();
     private bool _busy, _disposed;
     public bool IsBusy => _busy || _disposed;
+    internal TemporaryFileResult TemporaryFiles { get; private set; } = new(0, 0, 0, 0, false);
     public event EventHandler? Changed;
     public event EventHandler? ListRequested;
     public event EventHandler? ArchiveListRequested;
@@ -62,6 +63,8 @@ internal sealed class NoteWorkspace : IDisposable
         try
         {
             if (prepare is not null) await prepare();
+            TemporaryFiles = await Task.Run(() => TemporaryNoteMaintenance.Run(_root, DateTimeOffset.UtcNow,
+                record => _dispatcher.Invoke(() => RtfDocumentCodec.Load(record.Rtf))));
             var ids = await Task.Run(() => FileNoteRepository.DiscoverIds(_root));
             foreach (Guid id in ids)
             {

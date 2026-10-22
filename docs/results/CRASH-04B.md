@@ -26,7 +26,7 @@
 | 손상 복구: 새 원본 교체 후 | 새 저장본, 정상 백업·손상 보존본 유지 | 0 | 1 |
 | 자동 저장 FlushAsync 성공 응답 후 | 새 저장본·본문/서식/배치/상태 | 0 | 0 |
 
-Release 빌드는 경고/오류 0. 기존 전체 79개(자동 78개 + 실제 셸 비표시 probe 1개)도 PASS. 관찰 경계에서의 결과가 기존 저장 설계와 일치했으며 이 시험에서 추가 제품 저장 결함은 발견하지 않았다. 남은 임시 파일은 자동 복구하거나 삭제하지 않는 현재 정책을 그대로 검증했다. 보존/정리 정책은 별도 후속 범위다.
+이 작업 시점의 Release 빌드는 경고/오류 0, 기존 전체 79개(자동 78개 + 실제 셸 비표시 probe 1개)도 PASS. 관찰 경계에서의 결과가 기존 저장 설계와 일치했다. 후속 [WM-004C](TEMPORARY-04C.md)에서 고유한 중단 스냅샷은 보존하되 더 최근 정상 원본과 동일한 오래된 중복만 정리하도록 확장했다. 확장된 probe는 고유 잔여 파일을 보존하는 8개 시나리오와 실제 잔여 파일이 중복이 된 뒤에만 정리되는 추가 검증을 포함한다.
 
 ```powershell
 dotnet build WindowsMemo.slnx --configuration Release --nologo -p:RestoreLockedMode=true --artifacts-path artifacts/crash-validation

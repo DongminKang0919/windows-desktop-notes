@@ -120,6 +120,7 @@ internal static class Program
             });
             RecoveryTests.Run(Check);
             StorageTests.Run(Check);
+            TemporaryFileTests.Run(Check);
             WorkspaceTests.Run(Check);
             StartupTests.Run(Check);
             UpdateTests.Run(Check);
