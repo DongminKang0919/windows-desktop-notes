@@ -197,14 +197,25 @@ internal sealed class TrayController : IDisposable
     private void OnExit(object? sender, EventArgs e) => Dispatch(async () => await ExitAsync());
     public async Task ExitAsync()
     {
-        if (_exiting || _workspace.IsBusy) return;
+        if (_disposed || _exiting || _workspace.IsBusy) return;
         _exiting = true;
         try
         {
-            if (await _workspace.FlushAllAsync()) _app.Shutdown();
-            else MessageBox.Show("저장하지 못해 종료를 취소했습니다. 모든 메모를 유지하고 있으니 저장을 다시 시도하세요.", "저장 실패", MessageBoxButton.OK, MessageBoxImage.Warning);
+            if (!await _workspace.SaveThenAsync(_app.Shutdown) && !_disposed)
+                MessageBox.Show("저장하지 못해 종료를 취소했습니다. 모든 메모를 유지하고 있으니 저장을 다시 시도하세요.", "저장 실패", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally { _exiting = false; }
+    }
+    internal void ShowSessionPreparation(SessionPreparationResult result)
+    {
+        if (_disposed) return;
+        string text = result switch
+        {
+            SessionPreparationResult.Ready => "메모를 저장했습니다. Windows 로그아웃·종료를 다시 시도하세요.",
+            SessionPreparationResult.Busy => "앱 준비 또는 작업 중이라 Windows 종료를 보류했습니다. 작업 후 다시 시도하세요.",
+            _ => "저장하지 못해 Windows 종료를 보류했습니다. 메모를 유지하고 있으니 저장을 다시 시도하세요."
+        };
+        _tray.ShowBalloonTip(5000, "Windows 메모 · 종료 준비", text, Forms.ToolTipIcon.Info);
     }
     public void Dispose()
     {
