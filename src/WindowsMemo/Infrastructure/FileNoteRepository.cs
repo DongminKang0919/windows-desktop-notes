@@ -99,12 +99,16 @@ public sealed class FileNoteRepository
         }
     }
 
-    public void Save(NoteRecord record)
+    public void Save(NoteRecord record) => SaveCore(record, createOnly: false);
+    internal void SaveNew(NoteRecord record) => SaveCore(record, createOnly: true);
+    private void SaveCore(NoteRecord record, bool createOnly)
     {
         lock (_gate)
         {
             ValidateIdentity(record);
             CheckPaths();
+            if (createOnly && (File.Exists(PrimaryPath) || File.Exists(BackupPath)))
+                throw new IOException("기존 메모를 덮어쓸 수 없습니다.");
             Directory.CreateDirectory(_root);
             CheckPaths();
             byte[] plain = JsonSerializer.SerializeToUtf8Bytes(record, JsonOptions);
@@ -120,6 +124,13 @@ public sealed class FileNoteRepository
                 { stream.Write(bytes); stream.Flush(flushToDisk: true); }
                 _checkpoint?.Invoke(SaveCheckpoint.TemporaryFlushed);
                 CheckPaths();
+                if (createOnly)
+                {
+                    if (File.Exists(BackupPath)) throw new IOException("기존 백업을 보존했습니다.");
+                    File.Move(temp, PrimaryPath); // Atomic no-overwrite creation, including a competing writer.
+                    _checkpoint?.Invoke(SaveCheckpoint.Committed);
+                    return;
+                }
                 if (_preservePrimary && File.Exists(PrimaryPath))
                 {
                     // Keep the damaged primary and known-good backup unchanged.
