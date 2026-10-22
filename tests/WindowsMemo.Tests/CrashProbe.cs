@@ -15,6 +15,7 @@ namespace WindowsMemo.Tests;
 // Explicit probe: terminates only child processes created here, using synthetic repositories.
 internal static class CrashProbe
 {
+    private static readonly Guid IdentityToken = new("c63c3354-a04e-4c86-aae1-d0236c1ccdf6");
     private sealed record Case(string Name, string Seed, string Stop, int Version, bool Recovered, int Temps, int Damaged);
     private static readonly Case[] Cases =
     [
@@ -172,12 +173,86 @@ internal static class CrashProbe
         var removed = TemporaryNoteMaintenance.Run(duplicateFolder, DateTimeOffset.UtcNow, Validate);
         Require(removed.Removed == 1 && !File.Exists(pendingPath), "Redundant interrupted snapshot was not removed.");
         await VerifyChild(duplicateRun!, 1, false);
-        Emit(new { stage = "complete", passed = Cases.Length, redundantCleanup = true });
+        await VerifyRecoveryIdentityAsync(Emit);
+        Emit(new { stage = "complete", passed = Cases.Length, redundantCleanup = true, identityRecovery = 2 });
+    }
+    private static async Task VerifyRecoveryIdentityAsync(Action<object> emit)
+    {
+        foreach (string stop in new[] { "TemporaryFlushed", "Committed" })
+        {
+            string id = Guid.NewGuid().ToString("N"), folder = Folder(id);
+            CreateProbeDirectory(folder);
+            new FileNoteRepository(folder).Save(Record(0) with { Hidden = true });
+            var seed = new FileNoteRepository(Path.Combine(folder, "seed")); seed.Save(Record(1));
+            string source = Path.Combine(folder, IdentityToken.ToString("N") + ".tmp"); File.Copy(seed.PrimaryPath, source);
+            byte[] original = File.ReadAllBytes(source);
+            using (var writer = StartChild(id, "identity-write", stop))
+            {
+                Task<string> errors = writer.StandardError.ReadToEndAsync();
+                try
+                {
+                    string? signal = await writer.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(30));
+                    Require(signal == "CHECKPOINT " + stop, "Identity writer did not reach checkpoint: " + (signal ?? "EOF"));
+                }
+                finally { await StopOwnedChild(writer); }
+                Require(string.IsNullOrWhiteSpace(await errors), "Identity writer reported an error.");
+            }
+            async Task Verify(bool already)
+            {
+                using var reader = StartChild(id, "identity-verify", already.ToString());
+                Task<string> output = reader.StandardOutput.ReadToEndAsync(), errors = reader.StandardError.ReadToEndAsync();
+                try
+                {
+                    await reader.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
+                    Require(reader.ExitCode == 0 && (await output).Trim() == "VERIFIED", "Fresh identity reader failed: " + await errors);
+                }
+                finally { await StopOwnedChild(reader); }
+            }
+            await Verify(stop == "Committed");
+            await Verify(already: true); // A second fresh process must also reuse the same persisted ID.
+            Require(File.ReadAllBytes(source).SequenceEqual(original), "Pending source changed during identity recovery.");
+            emit(new { stage = "identity-pass", stop, freshReaders = 2, sourcePreserved = true });
+        }
+    }
+    private static void RunIdentityChild(string folder, string operation, string option)
+    {
+        var preview = new PendingNoteRecovery(folder).Read(IdentityToken);
+        Guid copyId = PendingNoteRecovery.CopyId(preview.Token, preview.Fingerprint);
+        if (operation == "identity-write" && option is "TemporaryFlushed" or "Committed")
+        {
+            var now = DateTimeOffset.UtcNow;
+            var repository = new FileNoteRepository(folder, copyId, stage =>
+            {
+                if (stage.ToString() != option) return;
+                Console.WriteLine("CHECKPOINT " + option); Console.Out.Flush();
+                Thread.Sleep(TimeSpan.FromSeconds(45)); Environment.Exit(124);
+            });
+            repository.SaveNew(preview.Record with { Id = copyId, SchemaVersion = 4, CreatedAtUtc = now, UpdatedAtUtc = now,
+                Hidden = true, Archived = false, DeletedAtUtc = null, Collapsed = false });
+            throw new InvalidOperationException("Identity checkpoint was not reached.");
+        }
+        if (operation != "identity-verify" || !bool.TryParse(option, out bool expectedExisting))
+            throw new ArgumentException("Invalid identity probe option.");
+        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
+        using var workspace = new NoteWorkspace(folder, (_, _) => throw new InvalidOperationException("Probe notes must remain hidden."));
+        Pump(workspace.InitializeAsync());
+        var repo = new FileNoteRepository(folder, copyId);
+        byte[]? before = File.Exists(repo.PrimaryPath) ? File.ReadAllBytes(repo.PrimaryPath) : null;
+        var recovery = workspace.RecoverPendingAsync(preview); Pump(recovery);
+        Require(recovery.Result is { } result && result.Id == copyId && result.AlreadyRecovered == expectedExisting,
+            "Persisted recovery result mismatch.");
+        Require(workspace.Items.Count == 2 && FileNoteRepository.DiscoverIds(folder).Count == 2, "Duplicate recovery copy created.");
+        if (expectedExisting) Require(before is not null && File.ReadAllBytes(repo.PrimaryPath).SequenceEqual(before), "Existing recovery copy was rewritten.");
+        var record = repo.Load(Validate, out _)!;
+        Require(record.Hidden && !record.Archived && !record.Collapsed && record.Rtf.SequenceEqual(preview.Record.Rtf), "Recovery content mismatch.");
+        Console.WriteLine("VERIFIED");
     }
     public static void RunChild(string[] args)
     {
         if (args.Length < 3) throw new ArgumentException("Invalid isolated child options.");
         string folder = Folder(args[0]);
+        if (args.Length == 3 && args[1] is "identity-write" or "identity-verify")
+        { RunIdentityChild(folder, args[1], args[2]); return; }
         if (args[1] == "verify" && args.Length == 4 && int.TryParse(args[2], out int version) && version is >= -1 and <= 1
             && bool.TryParse(args[3], out bool expectedRecovered))
         {

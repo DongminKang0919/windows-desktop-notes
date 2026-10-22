@@ -116,7 +116,7 @@ internal sealed class PendingRecoveryWindow : Window
             var document = RtfDocumentCodec.Load(preview.Record.Rtf);
             document.PagePadding = new Thickness(16);
             _body.Document = document; _body.Background = NoteTheme.Paper(preview.Record.Paper); _preview = preview;
-            _status.Text = $"저장 시각 {preview.Record.UpdatedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss} · 복구하면 메모 목록에 새 사본으로 저장됩니다.";
+            _status.Text = $"저장 시각 {preview.Record.UpdatedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss} · 복구할 내용을 확인하세요. 기존 사본의 편집과 상태는 유지합니다.";
         }
         catch (Exception ex) when (NoteWorkspace.IsNoteError(ex))
         { if (!_closed && version == _selectionVersion) _status.Text = "내용을 읽을 수 없습니다. 사용 중이거나 지원하지 않는 파일일 수 있습니다. 원본은 보존했습니다."; }
@@ -128,10 +128,13 @@ internal sealed class PendingRecoveryWindow : Window
         _recovering = true; UpdateButtons();
         try
         {
-            Guid? id = await _workspace.RecoverPendingAsync(preview);
+            var result = await _workspace.RecoverPendingAsync(preview);
             if (_closed) return;
-            _status.Text = id is not null ? "새 사본을 저장했습니다. ‘메모 목록 열기’에서 확인하세요. 원본은 보존됩니다."
-                : "복구하지 못했습니다. 파일이 바뀌었거나 저장할 수 없습니다. 다시 선택하여 확인한 뒤 시도하세요. 원본은 보존됩니다.";
+            _status.Text = result is null
+                ? "복구하지 못했습니다. 파일이 바뀌었거나 저장할 수 없습니다. 다시 선택하여 확인한 뒤 시도하세요. 원본은 보존됩니다."
+                : result.AlreadyRecovered
+                    ? "이전에 복구한 사본이 있습니다. 메모 목록·보관함·휴지통에서 확인하세요. 기존 편집과 상태는 유지했습니다."
+                    : "새 사본을 저장했습니다. ‘메모 목록 열기’에서 확인하세요. 원본은 보존됩니다.";
             _list.SelectedItem = null; _preview = null;
         }
         finally { _recovering = false; UpdateButtons(); }

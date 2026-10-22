@@ -543,9 +543,9 @@ internal static class WorkspaceTests
                 var preview = Result(workspace.PreviewPendingAsync(token));
                 // Mutable preview data must never replace the re-verified source bytes.
                 preview.Record.Rtf[0] = 0;
-                copyId = Result(workspace.RecoverPendingAsync(preview)) ?? throw new InvalidOperationException("Recovery failed.");
+                copyId = Result(workspace.RecoverPendingAsync(preview))?.Id ?? throw new InvalidOperationException("Recovery failed.");
                 Assert(copyId != originalId && workspace.Items.Count == 2 && workspace.Items.Single(item => item.Id == copyId).Hidden);
-                Assert(Result(workspace.RecoverPendingAsync(preview)) == copyId && workspace.Items.Count == 2);
+                Assert(Result(workspace.RecoverPendingAsync(preview)) is { AlreadyRecovered: true } repeated && repeated.Id == copyId && workspace.Items.Count == 2);
                 var copy = Load(name, copyId);
                 Assert(copy.Hidden && !copy.Archived && copy.DeletedAtUtc is null && !copy.Collapsed && copy.Paper == "Sage");
                 var restored = RtfDocumentCodec.Load(copy.Rtf);

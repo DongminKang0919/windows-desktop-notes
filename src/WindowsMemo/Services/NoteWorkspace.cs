@@ -9,6 +9,7 @@ internal sealed record NoteListItem(Guid Id, bool Hidden, string? Error, bool Tr
 {
     public string Label => $"메모 {Id.ToString("N")[..8]} · {(Error is not null ? "처리 실패" : Trashed ? "휴지통" : Archived ? "보관됨" : Hidden ? "숨김" : "표시 중")}";
 }
+internal sealed record PendingRecoveryResult(Guid Id, bool AlreadyRecovered);
 
 internal sealed class NoteWorkspace : IDisposable
 {
@@ -25,7 +26,6 @@ internal sealed class NoteWorkspace : IDisposable
     private readonly Dispatcher _dispatcher;
     private readonly Func<NoteView, NoteBounds?, INoteSurface> _createSurface;
     private readonly Dictionary<Guid, Entry> _entries = new();
-    private readonly Dictionary<(Guid Token, string Fingerprint), Guid> _recoveredPending = new();
     private bool _busy, _disposed;
     public bool IsBusy => _busy || _disposed;
     internal TemporaryFileResult TemporaryFiles { get; private set; } = new(0, 0, 0, 0, false);
@@ -168,9 +168,9 @@ internal sealed class NoteWorkspace : IDisposable
     internal Task<PendingNoteScan> ScanPendingAsync() => Task.Run(() => new PendingNoteRecovery(_root).Scan());
     internal PendingNoteCursor OpenPendingCursor() => new(_root);
     internal Task<PendingNotePreview> PreviewPendingAsync(Guid token) => Task.Run(() => new PendingNoteRecovery(_root).Read(token));
-    internal async Task<Guid?> RecoverPendingAsync(PendingNotePreview preview)
+    internal async Task<PendingRecoveryResult?> RecoverPendingAsync(PendingNotePreview preview)
     {
-        if (IsBusy || _entries.Count >= 1000) return null;
+        if (IsBusy) return null;
         _busy = true; Publish();
         try
         {
@@ -178,21 +178,33 @@ internal sealed class NoteWorkspace : IDisposable
             var verified = await Task.Run(() => new PendingNoteRecovery(_root).Read(preview.Token, preview.Fingerprint));
             RtfDocumentCodec.Load(verified.Record.Rtf);
             if (_disposed) return null;
-            var key = (verified.Token, verified.Fingerprint);
-            if (_recoveredPending.TryGetValue(key, out Guid existing) && _entries.ContainsKey(existing)) return existing;
-            Guid id = Guid.NewGuid();
+            Guid id = PendingNoteRecovery.CopyId(verified.Token, verified.Fingerprint);
+            if (id == verified.Record.Id) return null;
+            if (_entries.TryGetValue(id, out var existing))
+            {
+                if (existing.Error is not null) return null;
+                if (existing.Session is null)
+                {
+                    var loaded = await LoadAsync(existing.Repository);
+                    if (loaded.Record is null) return null;
+                    existing.Hidden = loaded.Record.Hidden;
+                    existing.Archived = loaded.Record.Archived;
+                    existing.Trashed = loaded.Record.DeletedAtUtc is not null;
+                }
+                return new(id, AlreadyRecovered: true);
+            }
+            if (_entries.Count >= 1000) return null;
             var repository = new FileNoteRepository(_root, id);
             var now = DateTimeOffset.UtcNow;
             var copy = verified.Record with { SchemaVersion = 4, Id = id, CreatedAtUtc = now, UpdatedAtUtc = now,
                 Hidden = true, Archived = false, DeletedAtUtc = null, Collapsed = false };
-            await Task.Run(() => repository.Save(copy));
+            await Task.Run(() => repository.SaveNew(copy));
             // Durable hidden copy first: failure cannot replace an existing note or lose the source.
             if (!_disposed)
             {
                 _entries.Add(id, new Entry(repository) { Hidden = true });
-                _recoveredPending[key] = id;
             }
-            return id;
+            return new(id, AlreadyRecovered: false);
         }
         catch (Exception ex) when (IsNoteError(ex)) { return null; }
         finally { _busy = false; Publish(); }
@@ -254,8 +266,6 @@ internal sealed class NoteWorkspace : IDisposable
         {
             await Task.Run(entry.Repository.Purge);
             _entries.Remove(id);
-            foreach (var key in _recoveredPending.Where(pair => pair.Value == id).Select(pair => pair.Key).ToArray())
-                _recoveredPending.Remove(key);
             return true;
         }
         catch (Exception ex) when (IsNoteError(ex)) { entry.Error = "영구 삭제 실패 · 다시 시도하세요"; return false; }
@@ -345,7 +355,6 @@ internal sealed class NoteWorkspace : IDisposable
         _disposed = true;
         foreach (var entry in _entries.Values) entry.Session?.Dispose();
         _entries.Clear();
-        _recoveredPending.Clear();
         Changed = null; ListRequested = null; ArchiveListRequested = null; Notice = null;
     }
 }

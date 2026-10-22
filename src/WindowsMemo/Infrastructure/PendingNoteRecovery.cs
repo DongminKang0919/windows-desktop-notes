@@ -1,5 +1,6 @@
 using System.IO;
 using System.Security.Cryptography;
+using System.Text;
 using WindowsMemo.Models;
 
 namespace WindowsMemo.Infrastructure;
@@ -15,6 +16,16 @@ internal sealed record PendingNotePreview(Guid Token, string Fingerprint, NoteRe
 internal sealed class PendingNoteRecovery(string root)
 {
     private readonly string _root = Path.GetFullPath(root);
+    // Persisted identity contract: keep v1 stable across app versions and process restarts.
+    internal static Guid CopyId(Guid token, string fingerprint)
+    {
+        if (token == Guid.Empty || fingerprint is not { Length: 64 } || fingerprint.Any(c => !char.IsAsciiHexDigit(c)))
+            throw new ArgumentException("잘못된 복구 식별자입니다.");
+        byte[] hash = SHA256.HashData(Encoding.ASCII.GetBytes($"WindowsMemo.PendingCopy.v1:{token:N}:{fingerprint.ToUpperInvariant()}"));
+        hash[6] = (byte)((hash[6] & 0x0f) | 0x80);
+        hash[8] = (byte)((hash[8] & 0x3f) | 0x80);
+        return new Guid(hash.AsSpan(0, 16), bigEndian: true);
+    }
     internal PendingNoteScan Scan()
     {
         using var cursor = new PendingNoteCursor(_root);

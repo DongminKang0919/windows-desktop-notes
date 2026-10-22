@@ -59,6 +59,10 @@ internal static class PendingRecoveryUiTests
                     recover.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     Wait(Until(() => !workspace.IsBusy && workspace.Items.Count == 2));
                     Require(workspace.Items.Count(item => item.Hidden) == 1 && File.Exists(path));
+                    list.SelectedItem = list.Items.OfType<PendingNoteFile>().Single(file => file.Token == token);
+                    Wait(Until(() => recover.IsEnabled)); recover.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Wait(Until(() => layout.Children.OfType<TextBlock>().Any(text => text.Text.StartsWith("이전에 복구한 사본이 있습니다."))));
+                    Require(workspace.Items.Count == 2 && File.Exists(path));
                     list.SelectedItem = list.Items.OfType<PendingNoteFile>().Single(file => file.Token == badToken);
                     Wait(Until(() => layout.Children.OfType<TextBlock>().Any(text => text.Text.StartsWith("내용을 읽을 수 없습니다."))));
                     Require(!recover.IsEnabled && new TextRange(preview.Document.ContentStart, preview.Document.ContentEnd).Text.Trim().Length == 0);
