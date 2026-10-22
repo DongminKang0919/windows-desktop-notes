@@ -4,7 +4,7 @@
 
 ## ZIP 패키지 만들기
 
-프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정에서 읽으며, 현재 앱 버전은 0.9.5입니다.
+프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정에서 읽으며, 현재 앱 버전은 0.9.6입니다.
 
 ```powershell
 .\scripts\package.ps1
@@ -28,7 +28,7 @@ ZIP 전체를 풀고 `WindowsMemo.exe`를 실행합니다. **.NET 10 Desktop Run
 
 ZIP 검증 후 Velopack으로 설치 EXE, full 업데이트 패키지와 피드를 `artifacts/package-GUID/installer`에 만듭니다. 설치 루트는 `%LOCALAPPDATA%\WindowsMemoApp`, 메모는 기존 `%LOCALAPPDATA%\WindowsMemo\Notes`로 분리합니다. .NET 10 Desktop Runtime x64가 없으면 설치기가 다운로드하도록 설정했습니다. 설치기는 완료 후 앱을 실행합니다.
 
-`scripts/verify-installer.ps1 -ReleaseDirectory <폴더> -ExpectedVersion 0.9.5`으로 파일·피드·payload 해시를 검사하고, `scripts/test-installer.ps1 -ReleaseDirectory <폴더>`로 변조 거부를 확인합니다. [수동 installer CI](../.github/workflows/installer.yml)는 artifact만 생성합니다. **서명되지 않은 prototype이며 실제 설치·제거·버전 간 업데이트 검증은 남아 있습니다.** 기존 0.7.0 산출물은 [검증 기록](results/INSTALLER-10B1.md)을 참고해 주세요.
+`scripts/verify-installer.ps1 -ReleaseDirectory <폴더> -ExpectedVersion 0.9.6`으로 파일·피드·payload 해시를 검사하고, `scripts/test-installer.ps1 -ReleaseDirectory <폴더>`로 변조 거부를 확인합니다. [수동 installer CI](../.github/workflows/installer.yml)는 artifact만 생성합니다. **서명되지 않은 prototype이며 실제 설치·제거·버전 간 업데이트 검증은 남아 있습니다.** 기존 0.7.0 산출물은 [검증 기록](results/INSTALLER-10B1.md)을 참고해 주세요.
 
 ## 로컬 시험 업데이트
 
