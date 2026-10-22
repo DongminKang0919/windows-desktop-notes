@@ -39,6 +39,10 @@ dotnet artifacts/list-feedback-validation/bin/WindowsMemo.Tests/release/WindowsM
 - 복구 창 수명 smoke: 워밍업 10회 + 측정 5회·유휴 1초. 최종 잔존 참조 0·원본 불변·마지막 재시도 성공, Handles 492 / GDI 10 / USER 13으로 기준값과 같았다. `recovery-probe/b1f8380181e647649db093a8e8bb8318/metrics.jsonl`. 1초 유휴로 성능이나 장시간 안정성을 판정하지 않는다.
 - 목록·보관함·휴지통의 150% 실패 렌더를 육안 확인했다. README에 `notes-feedback-150.png`를 변형 없이 복사했다. SHA256 `23E207AE4741F57654B835C7D5A440BAF7E69D733F00DD7CD4F7988EDED5E50D`가 원본과 같다. 바탕화면 실행 캡처가 아닌 실제 WPF 컨트롤 렌더이며 사용자 자료는 없다.
 
+## Windows CI 결과
+
+코드 커밋 `3c2304f`의 [Windows CI #45](https://github.com/DongminKang0919/windows-desktop-notes/actions/runs/39780778060), 작업 `119831161057`이 전체 성공했다. 작업 로그에서 Release 경고 0·오류 0, 자동 **144개 PASS**(새 안내 회귀 3개 포함), 중단 복구 **10건**(8 + 고정 ID 2), 수명 smoke의 최종 잔존 참조 0·원본 불변·재시도 성공을 확인했다. 측정 JSONL 및 UI artifact 업로드도 성공했다.
+
 ## 남은 확인
 
-Windows CI는 기본 144개·중단 복구·복구 창 수명 smoke·UI 렌더를 검증한다. 결과는 원격 실행 후 기록한다. 실제 표시된 창의 키보드/마우스 입력·화면 읽기 프로그램·DPI 변경·Windows 종료/취소 경합은 수동 확인이 필요하다. 로그아웃·재부팅·Explorer 재시작은 실행하지 않았다. 게시자 인증·서명·실제 설치본 업데이트와 8/24시간 전체 앱 상주는 미완료다. 이 검사는 무누수·무취약점을 보장하지 않는다.
+실제 표시된 창의 키보드/마우스 입력·화면 읽기 프로그램·DPI 변경·Windows 종료/취소 경합은 수동 확인이 필요하다. 로그아웃·재부팅·Explorer 재시작은 실행하지 않았다. 게시자 인증·서명·실제 설치본 업데이트와 8/24시간 전체 앱 상주는 미완료다. 이 검사는 무누수·무취약점을 보장하지 않는다.
