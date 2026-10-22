@@ -140,6 +140,92 @@ internal static class WorkspaceTests
             }
             Assert(surfaces.All(surface => !surface.Host.HasFallback && surface.Host.Handle == 0));
         });
+        check("임시 창 저장 실패: 실제 닫기 취소·재부착·최신 내용·배치 보존", () =>
+        {
+            string folder = Path.Combine(root, "fallback-save-failure");
+            const string latestText = "저장 실패 뒤 계속 편집한 최종 내용";
+            NoteBounds? latestBounds = null;
+            var surfaces = new List<StartupSurface>(); nint parent = 0;
+            NoteWorkspace CreateWorkspace() => new(folder, (view, bounds) =>
+            { var surface = new StartupSurface(view, bounds, () => parent); surfaces.Add(surface); return surface; });
+            using var desktop = new HwndSource(new HwndSourceParameters("Save failure test desktop", 1600, 900)
+                { WindowStyle = unchecked((int)0x80000000) });
+            Guid id;
+            using (var workspace = CreateWorkspace())
+            {
+                Wait(workspace.InitializeAsync()); id = workspace.Items.Single().Id;
+                var surface = surfaces[^1]; var view = surface.View;
+                view.InsertPlainText("이전 정상 저장"); view.SetPaper("Peach");
+                RecoveryTests.DragGrip(view, "ResizeGrip", 30, 20);
+                Assert(Wait(workspace.FlushAllAsync()));
+                var repository = new FileNoteRepository(folder, id);
+                byte[] before = File.ReadAllBytes(repository.PrimaryPath);
+                view.TextEditor.SelectAll(); view.InsertPlainText("닫기 실패 뒤에도 지킬 최신 한글 내용");
+                view.TextEditor.SelectAll(); view.ApplyColor(Brushes.RoyalBlue);
+                view.TextEditor.Selection.ApplyPropertyValue(TextElement.FontWeightProperty, System.Windows.FontWeights.Bold);
+                RecoveryTests.DragGrip(view, "ResizeGrip", 30, 20);
+                nint fallback = surface.Host.FallbackHandle;
+                using (var held = new FileStream(repository.PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    var closeAttempt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    bool busySeen = false;
+                    void OnChanged(object? sender, EventArgs e)
+                    {
+                        if (workspace.IsBusy) busySeen = true;
+                        else if (busySeen) closeAttempt.TrySetResult();
+                    }
+                    workspace.Changed += OnChanged;
+                    try
+                    {
+                        // WM_CLOSE targets only our hidden test window, exercising the real Closing handler.
+                        RecoveryTests.CloseTestWindow(fallback);
+                        Wait(closeAttempt.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+                    }
+                    finally { workspace.Changed -= OnChanged; }
+                    Assert(surface.Host.HasFallback && NativeMethods.IsWindow(fallback));
+                    Assert(!workspace.Items.Single().Hidden && view.IsEnabled && Text(view) == "닫기 실패 뒤에도 지킬 최신 한글 내용");
+                    Assert(File.ReadAllBytes(repository.PrimaryPath).SequenceEqual(before));
+                    view.TextEditor.SelectAll(); view.InsertPlainText(latestText);
+                    view.TextEditor.SelectAll(); view.ApplyColor(Brushes.RoyalBlue);
+                    view.TextEditor.Selection.ApplyPropertyValue(TextElement.FontWeightProperty, System.Windows.FontWeights.Bold);
+                    RecoveryTests.DragGrip(view, "ResizeGrip", 10, 10);
+                    latestBounds = surface.Host.CaptureBounds();
+                    view.SetCollapsed(true); Assert(!view.IsCollapsed);
+                    bool exited = false;
+                    Assert(!Wait(workspace.SaveThenAsync(() => exited = true)) && !exited);
+                    parent = desktop.Handle; surface.Host.CheckConnection();
+                    Assert(surface.Host.Handle != 0 && !surface.Host.HasFallback && !NativeMethods.IsWindow(fallback));
+                    Assert(surface.Host.CaptureBounds() == latestBounds);
+                    Assert(Text(view) == latestText && view.Paper == "Peach" && view.IsEnabled);
+                    Assert(((System.Windows.Controls.Button)view.FindName("SaveButton")).Visibility == System.Windows.Visibility.Visible);
+                    view.SetCollapsed(true); Assert(!view.IsCollapsed);
+                }
+                Assert(Wait(workspace.FlushAllAsync()));
+                Assert(((System.Windows.Controls.Button)view.FindName("SaveButton")).Visibility == System.Windows.Visibility.Collapsed);
+                view.SetCollapsed(true); Assert(view.IsCollapsed);
+                Assert(Wait(workspace.HideAsync(id)));
+                var stored = repository.Load(value => RtfDocumentCodec.Load(value.Rtf), out _)!;
+                Assert(stored.Hidden && stored.Collapsed && stored.Paper == "Peach");
+                Assert(stored.Bounds == latestBounds);
+                var doc = RtfDocumentCodec.Load(stored.Rtf);
+                Assert(new TextRange(doc.ContentStart, doc.ContentEnd).Text.Trim() == latestText);
+                Assert(Directory.GetFiles(folder, "*.tmp").Length == 0);
+                Assert(Wait(workspace.ShowAsync(id)));
+            }
+            using (var workspace = CreateWorkspace())
+            {
+                Wait(workspace.InitializeAsync());
+                var view = surfaces[^1].View;
+                Assert(workspace.Items.Single().Id == id && view.IsCollapsed && view.Paper == "Peach");
+                Assert(surfaces[^1].Host.CaptureBounds() == latestBounds);
+                Assert(Text(view) == latestText);
+                var range = new TextRange(view.TextEditor.Document.ContentStart, view.TextEditor.Document.ContentEnd.GetPositionAtOffset(-1)!);
+                Assert(range.GetPropertyValue(TextElement.FontWeightProperty).Equals(System.Windows.FontWeights.Bold));
+                Assert(range.GetPropertyValue(TextElement.ForegroundProperty) is SolidColorBrush brush && brush.Color == Colors.RoyalBlue);
+                Assert(Wait(workspace.FlushAllAsync()));
+            }
+            Assert(surfaces.All(surface => !surface.Host.HasFallback && surface.Host.Handle == 0));
+        });
         check("메모 수명: 생성·서식·숨김·재표시·재실행", () =>
         {
             var surfaces = new List<Surface>();

@@ -39,3 +39,5 @@ jobs:
       # --shell-probe requires a logged-in desktop and stays a local check.
       - name: Run automated checks
         run: dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll
+      - name: Run isolated crash recovery probe
+        run: dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll --crash-probe
