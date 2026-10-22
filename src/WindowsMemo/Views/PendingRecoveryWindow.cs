@@ -9,6 +9,7 @@ namespace WindowsMemo.Views;
 internal sealed class PendingRecoveryWindow : Window
 {
     private readonly NoteWorkspace _workspace;
+    private readonly Func<Guid, Task<PendingNotePreview>> _readPreview;
     private readonly ListBox _list = new() { DisplayMemberPath = nameof(PendingNoteFile.Label), MinHeight = 72 };
     private readonly RichTextBox _body = new()
     {
@@ -21,17 +22,20 @@ internal sealed class PendingRecoveryWindow : Window
     private readonly Button _next = MakeButton("다음 항목");
     private readonly Button _recover = MakeButton("새 메모로 복구");
     private PendingNotePreview? _preview;
+    private PendingNoteFile? _pendingPreview;
     private PendingNoteCursor? _cursor;
     private bool _hasNext;
     private int _page;
     private int _selectionVersion;
     private bool _closed, _loading, _recovering;
     private bool _retry;
+    private bool _readingPreview;
     private static Button MakeButton(string text) => new() { Content = text, MinHeight = NoteTheme.ToolSize, Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 8, 0) };
 
-    internal PendingRecoveryWindow(NoteWorkspace workspace, Action showList)
+    internal PendingRecoveryWindow(NoteWorkspace workspace, Action showList, Func<Guid, Task<PendingNotePreview>>? readPreview = null)
     {
         _workspace = workspace;
+        _readPreview = readPreview ?? workspace.PreviewPendingAsync;
         Title = "Windows 메모 · 미완료 메모 복구";
         Width = 620; Height = 620; MinWidth = 380; MinHeight = 420;
         FontFamily = NoteTheme.Font; Foreground = NoteTheme.Ink;
@@ -60,7 +64,7 @@ internal sealed class PendingRecoveryWindow : Window
         workspace.Changed += OnWorkspaceChanged;
         Closed += (_, _) =>
         {
-            _closed = true; _selectionVersion++; _preview = null;
+            _closed = true; _selectionVersion++; _preview = null; _pendingPreview = null;
             _cursor?.Dispose(); _cursor = null;
             _body.Document = new FlowDocument(); _list.ItemsSource = null;
             workspace.Changed -= OnWorkspaceChanged;
@@ -86,7 +90,7 @@ internal sealed class PendingRecoveryWindow : Window
             _cursor?.Dispose(); _cursor = _workspace.OpenPendingCursor(); _page = 0;
         }
         var cursor = _cursor!;
-        _loading = true; _list.SelectedItem = null; _preview = null;
+        _loading = true; _list.SelectedItem = null; _preview = null; _pendingPreview = null;
         _selectionVersion++; _body.Document = new FlowDocument(); _hasNext = false; _retry = false;
         _status.Text = "남아 있는 파일을 확인하는 중…"; UpdateButtons();
         try
@@ -108,27 +112,37 @@ internal sealed class PendingRecoveryWindow : Window
     }
     private async Task PreviewAsync()
     {
-        int version = ++_selectionVersion; _preview = null; _retry = false; _body.Document = new FlowDocument(); UpdateButtons();
-        if (_closed || _list.SelectedItem is not PendingNoteFile file) return;
+        _selectionVersion++; _preview = null; _retry = false; _body.Document = new FlowDocument(); UpdateButtons();
+        _pendingPreview = !_closed ? _list.SelectedItem as PendingNoteFile : null;
+        if (_pendingPreview is null) return;
         _status.Text = "내용을 읽는 중…";
+        if (_readingPreview) return; // Keep one active read and replace only the latest pending selection.
+        _readingPreview = true;
         try
         {
-            var preview = await _workspace.PreviewPendingAsync(file.Token);
-            if (_closed || version != _selectionVersion) return;
-            var document = RtfDocumentCodec.Load(preview.Record.Rtf);
-            document.PagePadding = new Thickness(16);
-            _body.Document = document; _body.Background = NoteTheme.Paper(preview.Record.Paper); _preview = preview;
-            _status.Text = $"저장 시각 {preview.Record.UpdatedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss} · 복구할 내용을 확인하세요. 기존 사본의 편집과 상태는 유지합니다.";
-        }
-        catch (Exception ex) when (NoteWorkspace.IsNoteError(ex))
-        {
-            if (!_closed && version == _selectionVersion)
+            while (!_closed && _pendingPreview is { } file)
             {
-                _list.SelectedItem = null; // The same row can be selected again after a transient read failure.
-                _status.Text = PendingRecoveryResult.SourceFailure(ex).Message;
+                int version = _selectionVersion; _pendingPreview = null;
+                try
+                {
+                    var preview = await _readPreview(file.Token);
+                    if (_closed || version != _selectionVersion) continue;
+                    var document = RtfDocumentCodec.Load(preview.Record.Rtf);
+                    document.PagePadding = new Thickness(16);
+                    _body.Document = document; _body.Background = NoteTheme.Paper(preview.Record.Paper); _preview = preview;
+                    _status.Text = $"저장 시각 {preview.Record.UpdatedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss} · 복구할 내용을 확인하세요. 기존 사본의 편집과 상태는 유지합니다.";
+                }
+                catch (Exception ex) when (NoteWorkspace.IsNoteError(ex))
+                {
+                    if (!_closed && version == _selectionVersion)
+                    {
+                        _list.SelectedItem = null; // Allow reselection after a transient read failure.
+                        _status.Text = PendingRecoveryResult.SourceFailure(ex).Message;
+                    }
+                }
             }
         }
-        finally { UpdateButtons(); }
+        finally { _readingPreview = false; UpdateButtons(); }
     }
     private async Task RecoverAsync()
     {
