@@ -12,6 +12,8 @@ internal sealed class UnsupportedNoteSchemaException : IOException
 
 public sealed class FileNoteRepository
 {
+    internal enum SaveCheckpoint { TemporaryFlushed, DamagedPreserved, Committed }
+    private readonly Action<SaveCheckpoint>? _checkpoint;
     // Legacy 0.3.0 note ID; keep its path unchanged for compatibility.
     public static readonly Guid NoteId = new("9eeb0907-8f5e-47c6-92dc-ea3c63e4f846");
     public const int MaxFileBytes = 4 * 1024 * 1024;
@@ -27,11 +29,15 @@ public sealed class FileNoteRepository
 
     public FileNoteRepository(string root) : this(root, NoteId) { }
 
-    public FileNoteRepository(string root, Guid id)
+    public FileNoteRepository(string root, Guid id) : this(root, id, null) { }
+
+    // Instance-scoped test observation only; public callers never install a checkpoint callback.
+    internal FileNoteRepository(string root, Guid id, Action<SaveCheckpoint>? checkpoint)
     {
         if (id == Guid.Empty) throw new ArgumentException("메모 ID가 비어 있습니다.", nameof(id));
         _root = Path.GetFullPath(root);
         Id = id;
+        _checkpoint = checkpoint;
     }
 
     // Discover only app-owned names, including notes with just a surviving backup.
@@ -112,15 +118,18 @@ public sealed class FileNoteRepository
             {
                 using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 { stream.Write(bytes); stream.Flush(flushToDisk: true); }
+                _checkpoint?.Invoke(SaveCheckpoint.TemporaryFlushed);
                 CheckPaths();
                 if (_preservePrimary && File.Exists(PrimaryPath))
                 {
                     // Keep the damaged primary and known-good backup unchanged.
                     File.Move(PrimaryPath, PrimaryPath + ".damaged-" + Guid.NewGuid().ToString("N"));
+                    _checkpoint?.Invoke(SaveCheckpoint.DamagedPreserved);
                 }
                 if (_preservePrimary || !File.Exists(PrimaryPath)) File.Move(temp, PrimaryPath);
                 else File.Replace(temp, PrimaryPath, BackupPath);
                 _preservePrimary = false;
+                _checkpoint?.Invoke(SaveCheckpoint.Committed);
             }
             finally
             {

@@ -16,6 +16,12 @@ internal static class Program
     {
         try
         {
+            if (args.Length > 0 && args[0] == "--crash-probe")
+            {
+                if (args.Length != 1) throw new ArgumentException("Use --crash-probe without extra arguments.");
+                CrashProbe.Run(); return 0;
+            }
+            if (args.Length > 0 && args[0] == "--crash-probe-child") { CrashProbe.RunChild(args[1..]); return 0; }
             if (args.Length > 0 && args[0] == "--workspace-probe") { WorkspaceProbe.Run(args[1..]); return 0; }
             if (args.Contains("--performance-probe")) { PerformanceProbe.Run(); return 0; }
             if (args.Contains("--stability-probe")) { StabilityProbe.Run(); return 0; }
