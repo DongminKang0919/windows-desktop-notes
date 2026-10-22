@@ -54,7 +54,10 @@ internal sealed class NoteSession : IDisposable
         _saves.MarkChanged();
         try
         {
-            if (await _saves.FlushAsync()) { Dispose(); return true; }
+            bool saved = await _saves.FlushAsync();
+            // An in-flight atomic write may finish after owner disposal. Never revive its UI.
+            if (_disposed) return false;
+            if (saved) { Dispose(); return true; }
             // Keep the newest editor and surface when the hidden snapshot did not reach disk.
             _hidden = false;
             _archived = false;
