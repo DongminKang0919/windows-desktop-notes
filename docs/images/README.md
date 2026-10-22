@@ -1,5 +1,7 @@
 # README 화면 자료
 
+0.9.10 목록·보관함·휴지통의 100/150/200% 렌더는 CI `sample-ui-renders`의 `notes-list-*.png`, `archive-list-*.png`, `trash-list-*.png`로 추가된다. 로컬 실행·다운로드 제한 때문에 저장소 PNG로 복사하거나 직접 육안 확인하지 못했으며, [목록 검증 기록](../results/LIST-07C.md)에 artifact 출처·보관 기간·확인 범위를 구분했다.
+
 이미지는 실제 앱 WPF 컨트롤을 시험 데이터로 렌더한 PNG이며 바탕화면 실행 캡처는 아니다. notes.png는 0.9.5 Windows CI, 복구·재시도 PNG는 0.9.8 로컬 회귀 검사의 렌더다. 사용자 메모·바탕화면·알림 영역은 캡처하지 않는다.
 
 | 파일 | 생성 경로 | 내용 |
