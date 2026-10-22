@@ -2,6 +2,7 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
@@ -165,9 +166,87 @@ internal static class NoteListTests
                 var references = Enumerable.Range(0, 20).Select(_ => ClosedWindow(restarted)).ToArray();
                 Wait(Task.Delay(25)); GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); Require(references.All(reference => !reference.IsAlive));
             });
+            check("목록 작업 안내: 열기·보관/휴지통 복원 실패는 파일 보존·목록 안에서 재시도", () =>
+            {
+                foreach (string mode in new[] { "notes", "archive", "trash" })
+                {
+                    using var f = new Fixture(); Guid id = mode == "notes" ? f.First : mode == "archive" ? f.Archive : f.Trash;
+                    string[] before = Fingerprint(f.Root);
+                    var window = new NoteListWindow(f.Workspace, archive: mode == "archive", trash: mode == "trash");
+                    try
+                    {
+                        List(window).SelectedItem = List(window).Items.OfType<NoteListItem>().Single(item => item.Id == id);
+                        string action = mode == "notes" ? "선택한 메모 열기" : "선택한 메모 복원";
+                        using (var locked = new FileStream(new FileNoteRepository(f.Root, id).PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                        {
+                            Click(Action(window, action)); Wait(Until(() => Feedback(window).Text.Contains("다시 시도")));
+                            Require(!f.Workspace.IsBusy && Action(window, action).IsEnabled && f.Surfaces.Count == 0);
+                            var feedback = Feedback(window);
+                            Require(AutomationProperties.GetName(feedback) == feedback.Text && AutomationProperties.GetLiveSetting(feedback) == AutomationLiveSetting.Polite);
+                            Require(!feedback.Text.Contains(f.Root) && !feedback.Text.Contains("Exception") && !feedback.Text.Contains("주말 산책"));
+                            var layout = (Grid)window.Content; string images = Path.Combine(AppContext.BaseDirectory, "ui-previews"); Directory.CreateDirectory(images);
+                            foreach (double scale in new[] { 1.0, 1.5, 2.0 })
+                            {
+                                layout.Measure(new Size(432, 376)); layout.Arrange(new Rect(0, 0, 432, 376)); layout.UpdateLayout();
+                                NoteDesignTests.Save(layout, 432, 376, scale, Path.Combine(images, $"{mode}-feedback-{(int)(scale * 100)}.png"));
+                            }
+                            layout.Measure(new Size(336, 340)); layout.Arrange(new Rect(0, 0, 336, 340)); layout.UpdateLayout();
+                            Require(List(window).ActualHeight >= 52 && Action(window, action).ActualHeight >= 28 && feedback.ActualHeight > 0);
+                        }
+                        Require(before.SequenceEqual(Fingerprint(f.Root)));
+                        Click(Action(window, action)); Wait(Until(() => Feedback(window).Text.Contains(mode == "notes" ? "열었습니다" : "복원했습니다")));
+                        Require(mode == "notes" ? f.Surfaces.Count == 1 : f.Workspace.Items.Any(item => item.Id == id && item.Hidden));
+                    }
+                    finally { window.Close(); }
+                }
+            });
+            check("목록 작업 안내: 휴지통 저장 실패의 최신 편집·선택 유지와 재시도", () =>
+            {
+                using var f = new Fixture(); Require(Wait(f.Workspace.ShowAsync(f.First)));
+                var view = f.Surfaces.Single().View; view.TextEditor.SelectAll(); view.InsertPlainText("저장 실패 후 최신 본문");
+                var window = new NoteListWindow(f.Workspace);
+                try
+                {
+                    List(window).SelectedItem = List(window).Items.OfType<NoteListItem>().Single(item => item.Id == f.First);
+                    using (var locked = new FileStream(new FileNoteRepository(f.Root, f.First).PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    {
+                        Click(Action(window, "휴지통으로 이동")); Wait(Until(() => Feedback(window).Text.Contains("옮기지 못했습니다")));
+                        Require(((NoteListItem)List(window).SelectedItem).Id == f.First && view.IsEnabled);
+                        Require(new TextRange(view.TextEditor.Document.ContentStart, view.TextEditor.Document.ContentEnd).Text.Contains("최신 본문"));
+                    }
+                    Click(Action(window, "휴지통으로 이동")); Wait(Until(() => Feedback(window).Text.Contains("옮겼습니다")));
+                    Require(f.Workspace.TrashItems.Any(item => item.Id == f.First));
+                    var saved = new FileNoteRepository(f.Root, f.First).Load(record => RtfDocumentCodec.Load(record.Rtf), out _)!;
+                    var document = RtfDocumentCodec.Load(saved.Rtf);
+                    Require(new TextRange(document.ContentStart, document.ContentEnd).Text.Contains("최신 본문"));
+                }
+                finally { window.Close(); }
+            });
+            check("목록 작업 안내: 읽기 중 닫힌 창은 뒤늦은 안내 없이 완료 후 참조 회수", () =>
+            {
+                using var f = new Fixture(); string[] before = Fingerprint(f.Root); var references = new List<WeakReference>();
+                using (var locked = new FileStream(new FileNoteRepository(f.Root, f.First).PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                    for (int i = 0; i < 20; i++) references.Add(CloseWhileOpening(f));
+                Require(f.Surfaces.Count == 0 && before.SequenceEqual(Fingerprint(f.Root)));
+                Wait(Task.Delay(25)); GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                Require(references.All(reference => !reference.IsAlive));
+            });
         }
         finally { SynchronizationContext.SetSynchronizationContext(previous); }
     }
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference CloseWhileOpening(Fixture f)
+    {
+        var window = new NoteListWindow(f.Workspace);
+        List(window).SelectedItem = List(window).Items.OfType<NoteListItem>().Single(item => item.Id == f.First);
+        Click(Action(window, "선택한 메모 열기")); Require(f.Workspace.IsBusy);
+        var feedback = Feedback(window); Require(feedback.Text.Contains("열고 있습니다"));
+        window.Close(); Wait(Until(() => !f.Workspace.IsBusy)); Wait(Task.Delay(10));
+        Require(feedback.Text == "" && AutomationProperties.GetName(feedback) == "" && List(window).Items.Count == 0);
+        return new(window);
+    }
+    private static TextBlock Feedback(Window window) => Visuals((Grid)window.Content).OfType<TextBlock>()
+        .Single(text => AutomationProperties.GetAutomationId(text) == "NoteListFeedback");
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static WeakReference ClosedWindow(NoteWorkspace workspace)
     {
