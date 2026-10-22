@@ -70,10 +70,44 @@ internal static class PendingRecoveryUiTests
                 string root = Path.Combine(AppContext.BaseDirectory, "pending-ui-tests", Guid.NewGuid().ToString("N"));
                 using var workspace = new NoteWorkspace(root, (_, _) => new Surface());
                 Wait(workspace.InitializeAsync());
+                Directory.CreateDirectory(root);
+                for (int i = 0; i < 65; i++) File.WriteAllText(Path.Combine(root, Guid.NewGuid().ToString("N") + ".tmp"), "unread candidate");
                 var references = Enumerable.Range(0, 20).Select(_ => ClosedWindow(workspace)).ToArray();
                 Wait(Task.Delay(25));
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                 Require(references.All(reference => !reference.IsAlive));
+            });
+            check("미완료 복구 UI: 64개 이후 이동·이전 미리보기 무효화·처음부터 확인", () =>
+            {
+                string root = Path.Combine(AppContext.BaseDirectory, "pending-ui-tests", Guid.NewGuid().ToString("N"));
+                using var workspace = new NoteWorkspace(root, (_, _) => new Surface());
+                Wait(workspace.InitializeAsync()); Require(Wait(workspace.FlushAllAsync()));
+                var repository = new FileNoteRepository(root, workspace.Items.Single().Id);
+                for (int i = 0; i < 65; i++) File.Copy(repository.PrimaryPath, Path.Combine(root, Guid.NewGuid().ToString("N") + ".tmp"));
+                var window = new PendingRecoveryWindow(workspace, () => { });
+                try
+                {
+                    Wait(window.RefreshAsync()); var layout = (Grid)window.Content;
+                    var list = layout.Children.OfType<ListBox>().Single();
+                    var preview = layout.Children.OfType<RichTextBox>().Single();
+                    var buttons = layout.Children.OfType<WrapPanel>().Single().Children.OfType<Button>().ToArray();
+                    var next = buttons.Single(button => Equals(button.Content, "다음 항목"));
+                    var recover = buttons.Single(button => Equals(button.Content, "새 메모로 복구"));
+                    var restart = buttons.Single(button => Equals(button.Content, "처음부터 확인"));
+                    Require(list.Items.Count == 64 && next.IsEnabled);
+                    var firstIds = list.Items.OfType<PendingNoteFile>().Select(file => file.Token).ToHashSet();
+                    list.SelectedIndex = 0; Wait(Until(() => recover.IsEnabled));
+                    next.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Require(!recover.IsEnabled && list.SelectedItem is null);
+                    Wait(Until(() => restart.IsEnabled));
+                    Require(list.Items.Count == 1 && !next.IsEnabled && !recover.IsEnabled);
+                    Require(!firstIds.Contains(((PendingNoteFile)list.Items[0]).Token));
+                    Require(new TextRange(preview.Document.ContentStart, preview.Document.ContentEnd).Text.Trim().Length == 0);
+                    restart.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Wait(Until(() => restart.IsEnabled));
+                    Require(list.Items.Count == 64 && next.IsEnabled && !recover.IsEnabled && Directory.GetFiles(root, "*.tmp").Length == 65);
+                    Require(firstIds.SetEquals(list.Items.OfType<PendingNoteFile>().Select(file => file.Token)));
+                }
+                finally { window.Close(); }
             });
         }
         finally { SynchronizationContext.SetSynchronizationContext(previous); }
