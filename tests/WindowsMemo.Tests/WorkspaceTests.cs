@@ -102,6 +102,44 @@ internal static class WorkspaceTests
             }
             Assert(surfaces.All(surface => surface.Host.Handle == 0 && !surface.Host.HasFallback));
         });
+        check("임시 창 위치·크기: 저장·숨김 복원·재실행·재부착", () =>
+        {
+            string folder = Path.Combine(root, "fallback-geometry");
+            var surfaces = new List<StartupSurface>(); nint parent = 0;
+            NoteWorkspace CreateWorkspace() => new(folder, (view, bounds) =>
+            { var surface = new StartupSurface(view, bounds, () => parent); surfaces.Add(surface); return surface; });
+            Guid id; NoteBounds saved;
+            using (var workspace = CreateWorkspace())
+            {
+                Wait(workspace.InitializeAsync()); id = workspace.Items.Single().Id;
+                var surface = surfaces[^1]; surface.View.InsertPlainText("임시 창에서 바꾼 배치 보존");
+                RecoveryTests.DragGrip(surface.View, "MoveGrip", 20, 15);
+                RecoveryTests.DragGrip(surface.View, "ResizeGrip", 60, 50);
+                Assert(NativeMethods.SetWindowPos(surface.Host.FallbackHandle, 0, 120, 130, 420, 380,
+                    NativeMethods.SwpNoActivate | NativeMethods.SwpNoZOrder));
+                Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+                saved = surface.Host.CaptureBounds();
+                Assert(Wait(workspace.FlushAllAsync()));
+                var record = new FileNoteRepository(folder, id).Load(value => RtfDocumentCodec.Load(value.Rtf), out _)!;
+                Assert(record.Bounds == saved && saved.X == 120 && saved.Y == 130);
+                nint fallback = surface.Host.FallbackHandle;
+                Assert(Wait(workspace.HideAsync(id)) && !NativeMethods.IsWindow(fallback));
+                Assert(Wait(workspace.ShowAsync(id)) && surfaces[^1].Host.CaptureBounds() == saved);
+            }
+            using (var workspace = CreateWorkspace())
+            {
+                Wait(workspace.InitializeAsync());
+                Assert(workspace.Items.Single().Id == id && workspace.Items.Single().Error is null);
+                var surface = surfaces[^1];
+                Assert(surface.Host.CaptureBounds() == saved && Text(surface.View) == "임시 창에서 바꾼 배치 보존");
+                using var desktop = new HwndSource(new HwndSourceParameters("Fallback geometry desktop", 1600, 900)
+                    { WindowStyle = unchecked((int)0x80000000) });
+                parent = desktop.Handle; surface.Host.CheckConnection();
+                Assert(surface.Host.Handle != 0 && !surface.Host.HasFallback && surface.Host.CaptureBounds() == saved);
+                Assert(Wait(workspace.FlushAllAsync()));
+            }
+            Assert(surfaces.All(surface => !surface.Host.HasFallback && surface.Host.Handle == 0));
+        });
         check("메모 수명: 생성·서식·숨김·재표시·재실행", () =>
         {
             var surfaces = new List<Surface>();

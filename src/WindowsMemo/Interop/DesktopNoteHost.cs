@@ -25,11 +25,13 @@ public sealed class DesktopNoteHost : IDisposable
     private NativeMethods.Rect _lastClient;
     private double _scale = 1;
     private bool _visible, _opened, _disposed, _checking, _checkQueued, _resumeQueued, _closingFallback;
+    private bool _updatingFallback, _fallbackCollapsed;
     private uint _taskbarCreated;
     private (int Width, int Height, int Radius)? _regionShape;
     private NoteBounds? _publishedBounds;
     public nint Handle => _source is { IsDisposed: false } ? _source.Handle : 0;
     internal bool HasFallback => _fallback is not null;
+    internal nint FallbackHandle => _fallback is null ? 0 : new WindowInteropHelper(_fallback).Handle;
     internal int RecoveryAttempts { get; private set; }
     internal bool RecoveryStopped => RecoveryAttempts >= MaxRecoveryAttempts;
 
@@ -176,6 +178,7 @@ public sealed class DesktopNoteHost : IDisposable
             bool resume = _resumeQueued;
             _resumeQueued = false;
             if (_disposed) return;
+            if (FallbackHandle != 0) ApplyFallbackBounds();
             // Only an explicit shell/resume signal re-arms an exhausted retry budget.
             // Settings/battery changes cannot create an endless polling loop.
             if (resume && RecoveryStopped) RetryConnection();
@@ -253,15 +256,74 @@ public sealed class DesktopNoteHost : IDisposable
     private void ShowFallback()
     {
         if (_fallback is not null) return;
+        _fallbackCollapsed = _view.IsCollapsed;
         _fallback = new Window
         {
             Title = "Windows 메모 · 연결 복구", Width = _bounds.Width / _scale,
             Height = _view.IsCollapsed ? NoteTheme.CollapsedHeight : _bounds.Height / _scale,
             MinWidth = 260, MinHeight = NoteTheme.CollapsedHeight, Content = _view,
-            WindowStartupLocation = WindowStartupLocation.CenterScreen
+            WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize,
+            Background = NoteTheme.Paper(_view.Paper), WindowStartupLocation = WindowStartupLocation.Manual
         };
         _fallback.Closing += FallbackClosing;
-        if (_visible) _fallback.Show();
+        _fallback.LocationChanged += FallbackBoundsChanged;
+        _fallback.SizeChanged += FallbackBoundsChanged;
+        _fallback.StateChanged += FallbackStateChanged;
+        if (_visible)
+        {
+            // Show can update WPF's initial placement; ignore it until saved physical bounds are applied.
+            _updatingFallback = true;
+            try { _fallback.Show(); }
+            finally { _updatingFallback = false; }
+            ApplyFallbackBounds();
+        }
+    }
+
+    private void FallbackBoundsChanged(object? sender, EventArgs e)
+    {
+        if (_updatingFallback || _closingFallback || _disposed || _fallback?.WindowState != WindowState.Normal) return;
+        ReadFallbackBounds();
+    }
+
+    private void ReadFallbackBounds()
+    {
+        if (_fallback?.WindowState != WindowState.Normal) return;
+        nint handle = FallbackHandle;
+        if (handle == 0 || !NativeMethods.GetWindowRect(handle, out var rect)) return;
+        if (rect.Right <= rect.Left || rect.Bottom <= rect.Top) return;
+        double scale = GetScale(handle);
+        int expandedHeight = _fallbackCollapsed ? (int)Math.Round(_bounds.Height / _scale * scale) : rect.Bottom - rect.Top;
+        _bounds = new PixelBounds(rect.Left, rect.Top, rect.Right - rect.Left, expandedHeight);
+        _scale = scale;
+        PublishBounds();
+    }
+
+    private void ApplyFallbackBounds(Vector move = default, Vector resize = default, bool followCursor = false)
+    {
+        if (_fallback is null || _disposed || _fallback.WindowState != WindowState.Normal) return;
+        _updatingFallback = true;
+        try
+        {
+            nint handle = new WindowInteropHelper(_fallback).EnsureHandle();
+            double scale = GetScale(handle);
+            _bounds = _bounds.ScaleSize(_scale, scale);
+            _scale = scale;
+            _bounds = new PixelBounds(_bounds.X + (int)Math.Round(move.X * scale), _bounds.Y + (int)Math.Round(move.Y * scale),
+                _bounds.Width + (int)Math.Round(resize.X * scale), _bounds.Height + (int)Math.Round(resize.Y * scale));
+            _bounds = _bounds.FitWithin(MonitorWorkArea(followCursor), (int)(260 * scale), (int)(200 * scale));
+            int height = _view.IsCollapsed ? (int)(NoteTheme.CollapsedHeight * scale) : _bounds.Height;
+            if (!NativeMethods.SetWindowPos(handle, 0, _bounds.X, _bounds.Y, _bounds.Width, height,
+                NativeMethods.SwpNoActivate | NativeMethods.SwpNoZOrder)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            _fallbackCollapsed = _view.IsCollapsed;
+        }
+        finally { _updatingFallback = false; }
+        ReadFallbackBounds();
+    }
+
+    private void FallbackStateChanged(object? sender, EventArgs e)
+    {
+        // Minimized window rectangles are not note positions. Reapply any appearance change on restore.
+        if (!_disposed && !_closingFallback && _fallback?.WindowState == WindowState.Normal) QueueCheck();
     }
 
     private void FallbackClosing(object? sender, CancelEventArgs e)
@@ -278,6 +340,9 @@ public sealed class DesktopNoteHost : IDisposable
         try
         {
             _fallback.Closing -= FallbackClosing;
+            _fallback.LocationChanged -= FallbackBoundsChanged;
+            _fallback.SizeChanged -= FallbackBoundsChanged;
+            _fallback.StateChanged -= FallbackStateChanged;
             _fallback.Content = null;
             _fallback.Close();
             _fallback = null;
@@ -287,14 +352,15 @@ public sealed class DesktopNoteHost : IDisposable
 
     private void OnMove(object? sender, Vector delta)
     {
-        if (Handle == 0) return;
+        if (Handle == 0) { ApplyFallbackBounds(move: delta, followCursor: true); return; }
         double scale = GetScale(Handle);
         _bounds = _bounds with { X = _bounds.X + (int)Math.Round(delta.X * scale), Y = _bounds.Y + (int)Math.Round(delta.Y * scale) };
         UpdateBounds(followCursor: true);
     }
     private void OnResize(object? sender, Vector delta)
     {
-        if (Handle == 0) return;
+        if (_view.IsCollapsed) return;
+        if (Handle == 0) { ApplyFallbackBounds(resize: delta); return; }
         double scale = GetScale(Handle);
         _bounds = _bounds with { Width = _bounds.Width + (int)Math.Round(delta.X * scale), Height = _bounds.Height + (int)Math.Round(delta.Y * scale) };
         UpdateBounds();
@@ -302,7 +368,11 @@ public sealed class DesktopNoteHost : IDisposable
     private void OnAppearance(object? sender, EventArgs e)
     {
         if (_source is { IsDisposed: false }) _source.CompositionTarget.BackgroundColor = ((SolidColorBrush)NoteTheme.Paper(_view.Paper)).Color;
-        if (_fallback is not null) _fallback.Height = _view.IsCollapsed ? NoteTheme.CollapsedHeight : _bounds.Height / _scale;
+        if (_fallback is not null)
+        {
+            _fallback.Background = NoteTheme.Paper(_view.Paper);
+            ApplyFallbackBounds();
+        }
         if (Handle != 0) UpdateBounds();
     }
     private void UpdateBounds(bool followCursor = false)
@@ -322,18 +392,24 @@ public sealed class DesktopNoteHost : IDisposable
     {
         if (!NativeMethods.GetClientRect(_parent, out _lastClient)) throw new Win32Exception(Marshal.GetLastWin32Error());
         var origin = ParentOrigin();
+        var work = MonitorWorkArea(followCursor);
+        int left = Math.Max(origin.X, work.X), top = Math.Max(origin.Y, work.Y);
+        int right = Math.Min(origin.X + _lastClient.Right, work.X + work.Width), bottom = Math.Min(origin.Y + _lastClient.Bottom, work.Y + work.Height);
+        var area = right > left && bottom > top
+            ? new PixelBounds(left, top, right - left, bottom - top)
+            : new PixelBounds(origin.X, origin.Y, Math.Max(1, _lastClient.Right), Math.Max(1, _lastClient.Bottom));
+        _bounds = _bounds.FitWithin(area, (int)(260 * _scale), (int)(200 * _scale));
+    }
+
+    private PixelBounds MonitorWorkArea(bool followCursor)
+    {
         var rect = new NativeMethods.Rect { Left = _bounds.X, Top = _bounds.Y, Right = _bounds.X + _bounds.Width, Bottom = _bounds.Y + _bounds.Height };
         nint monitor = followCursor && NativeMethods.GetCursorPos(out var cursor)
             ? NativeMethods.MonitorFromPoint(cursor, NativeMethods.MonitorDefaultToNearest)
             : NativeMethods.MonitorFromRect(ref rect, NativeMethods.MonitorDefaultToNearest);
         var info = new NativeMethods.MonitorInfo { Size = Marshal.SizeOf<NativeMethods.MonitorInfo>() };
         if (monitor == 0 || !NativeMethods.GetMonitorInfo(monitor, ref info)) throw new Win32Exception(Marshal.GetLastWin32Error());
-        int left = Math.Max(origin.X, info.Work.Left), top = Math.Max(origin.Y, info.Work.Top);
-        int right = Math.Min(origin.X + _lastClient.Right, info.Work.Right), bottom = Math.Min(origin.Y + _lastClient.Bottom, info.Work.Bottom);
-        var area = right > left && bottom > top
-            ? new PixelBounds(left, top, right - left, bottom - top)
-            : new PixelBounds(origin.X, origin.Y, Math.Max(1, _lastClient.Right), Math.Max(1, _lastClient.Bottom));
-        _bounds = _bounds.FitWithin(area, (int)(260 * _scale), (int)(200 * _scale));
+        return new PixelBounds(info.Work.Left, info.Work.Top, info.Work.Right - info.Work.Left, info.Work.Bottom - info.Work.Top);
     }
 
     private void ApplyBounds()
@@ -354,6 +430,11 @@ public sealed class DesktopNoteHost : IDisposable
                 else _regionShape = shape;
             }
         }
+        PublishBounds();
+    }
+
+    private void PublishBounds()
+    {
         var savedBounds = CaptureBounds();
         if (_publishedBounds != savedBounds)
         {

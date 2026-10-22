@@ -117,6 +117,36 @@ internal static class RecoveryTests
             var bounds = host.CaptureBounds();
             Assert(bounds.X == 80 && bounds.Y == 90 && bounds.Width == 320 && bounds.Height == 300);
         });
+        check("임시 창 손잡이·실제 좌표·접힘 높이·재부착·해제", () =>
+        {
+            nint parent = 0;
+            using var desktop = ParentSurface(); using var view = new NoteView();
+            using var host = new DesktopNoteHost(view, () => parent, watchChanges: false);
+            host.Open(visible: false);
+            DragGrip(view, "MoveGrip", 20, 15);
+            Assert(host.FallbackHandle != 0);
+            var before = host.CaptureBounds();
+            DragGrip(view, "ResizeGrip", 40, 30);
+            var resized = host.CaptureBounds();
+            Assert(Math.Abs(resized.Width - before.Width - 40) <= 0.51 / resized.Scale
+                && Math.Abs(resized.Height - before.Height - 30) <= 0.51 / resized.Scale);
+            int changes = 0; host.BoundsChanged += (_, _) => changes++;
+            for (int i = 0; i < 10; i++) { view.SetCollapsed(true); view.SetCollapsed(false); }
+            Assert(host.CaptureBounds() == resized && changes == 0);
+            view.SetCollapsed(true);
+            Assert(NativeMethods.GetWindowRect(host.FallbackHandle, out var collapsed));
+            Assert(collapsed.Bottom - collapsed.Top == (int)(NoteTheme.CollapsedHeight * resized.Scale));
+            Assert(host.CaptureBounds().Height == resized.Height);
+            view.SetCollapsed(false);
+            nint fallback = host.FallbackHandle;
+            Assert(NativeMethods.SetWindowPos(fallback, 0, 120, 130, 420, 380, NativeMethods.SwpNoActivate | NativeMethods.SwpNoZOrder));
+            DrainMessages();
+            var moved = host.CaptureBounds();
+            Assert(moved.X == 120 && moved.Y == 130 && moved.Width * moved.Scale == 420 && moved.Height * moved.Scale == 380);
+            parent = desktop.Handle; host.CheckConnection();
+            Assert(host.Handle != 0 && !host.HasFallback && !NativeMethods.IsWindow(fallback));
+            Assert(host.CaptureBounds() == moved);
+        });
         check("20회 표면 재생성 후 원래 내용 유지", () =>
         {
             using var view = new NoteView();
@@ -145,11 +175,18 @@ internal static class RecoveryTests
             ResumeAfterNotification(power: true));
         check("복구 호스트 및 편집기 참조 해제", () =>
         {
-            var weak = DisposedHostReferences();
+            var weak = DisposedHostReferences().Concat(DisposedHostReferences(fallback: true)).ToArray();
             System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
             GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
             Assert(weak.All(reference => !reference.IsAlive));
         });
+    }
+
+    internal static void DragGrip(NoteView view, string name, double x, double y)
+    {
+        var grip = (System.Windows.Controls.Primitives.Thumb)view.FindName(name);
+        grip.RaiseEvent(new System.Windows.Controls.Primitives.DragDeltaEventArgs(x, y)
+            { RoutedEvent = System.Windows.Controls.Primitives.Thumb.DragDeltaEvent });
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -234,12 +271,13 @@ internal static class RecoveryTests
     private static extern int GetWindowText(nint hwnd, System.Text.StringBuilder text, int count);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static WeakReference[] DisposedHostReferences()
+    private static WeakReference[] DisposedHostReferences(bool fallback = false)
     {
         using var parent = ParentSurface();
         var view = new NoteView();
-        var host = new DesktopNoteHost(view, () => parent.Handle, watchChanges: true);
+        var host = new DesktopNoteHost(view, () => fallback ? 0 : parent.Handle, watchChanges: true);
         host.Open(visible: false);
+        if (fallback) DragGrip(view, "ResizeGrip", 30, 20);
         host.Dispose();
         view.Dispose();
         return [new WeakReference(host), new WeakReference(view)];
