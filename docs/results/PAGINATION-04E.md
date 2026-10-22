@@ -19,7 +19,7 @@
 - UI에서 첫 64개→마지막 1개→처음부터 이동, 이전 미리보기/복구 버튼 무효화, 마지막 다음 버튼 비활성, 파일 65개 보존을 검증했다. 다음 페이지가 남은 창 20회 생성·닫기 후 약한 참조 잔존 0개를 확인했다.
 - 격리 자식 프로세스 강제 종료 **8건 PASS**, 실제 잔여 중복 정리 후 별도 읽기 자식 검증도 통과했다. JSONL: `artifacts/pending-pagination-validation/bin/WindowsMemo.Tests/release/crash-probe/ad84b16c267f4598841b42972f10f33a/results.jsonl`.
 - README 복구 이미지는 로컬 UI 검사에서 만든 150% 컨트롤 렌더다. 파일 SHA256: `1527ad972d90c71cbcb8ae032c5b236ce7966a99575682963fbe5d8369318199`. 직접 열어 한글·버튼 배치·읽기 전용 본문을 확인했다. 사용자 바탕화면 캡처가 아니다.
-- 원격 검증은 [PR #6의 CI](https://github.com/DongminKang0919/windows-desktop-notes/pull/6/checks)에서 최종 커밋 결과를 확인한다.
+- PR #6 병합본 f6f4f2a에서 목록 탐색 변경만 새 브랜치로 분리했다. 원격 검증은 [Windows CI](https://github.com/DongminKang0919/windows-desktop-notes/actions/workflows/windows-ci.yml)와 이번 PR의 최종 커밋 Checks에서 확인한다.
 
 ```powershell
 dotnet build WindowsMemo.slnx --configuration Release -p:RestoreLockedMode=true --artifacts-path artifacts/pending-pagination-validation
