@@ -1,4 +1,5 @@
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -30,7 +31,11 @@ internal static class PendingRecoveryUiTests
                 using var workspace = new NoteWorkspace(root, (_, _) => new Surface());
                 Wait(workspace.InitializeAsync()); Require(Wait(workspace.FlushAllAsync()));
                 var now = DateTimeOffset.UtcNow;
-                var record = new NoteRecord(4, Guid.NewGuid(), RtfDocumentCodec.Save(new FlowDocument(new Paragraph(new Run("산책하며 떠오른 생각\n\n☐ 주말 산책길 찾아보기\n☑ 읽고 싶은 책 적어두기")))),
+                var sample = new FlowDocument { FontFamily = NoteTheme.Font, FontSize = NoteTheme.BodySize };
+                sample.Blocks.Add(new Paragraph(new Run("산책하며 떠오른 생각")));
+                sample.Blocks.Add(new Paragraph(new Run("☐ 주말 산책길 찾아보기")));
+                sample.Blocks.Add(new Paragraph(new Run("☑ 읽고 싶은 책 적어두기")));
+                var record = new NoteRecord(4, Guid.NewGuid(), RtfDocumentCodec.Save(sample),
                     new(48, 64, 320, 300), now.AddDays(-1), now, Paper: "Sage");
                 var seed = new FileNoteRepository(Path.Combine(root, "seed"), record.Id); seed.Save(record);
                 Guid token = Guid.NewGuid(); string path = Path.Combine(root, token.ToString("N") + ".tmp"); File.Copy(seed.PrimaryPath, path);
@@ -60,6 +65,16 @@ internal static class PendingRecoveryUiTests
                 }
                 finally { window.Close(); }
             });
+            check("미완료 복구 UI: 반복 열기·닫기 후 창 참조 회수", () =>
+            {
+                string root = Path.Combine(AppContext.BaseDirectory, "pending-ui-tests", Guid.NewGuid().ToString("N"));
+                using var workspace = new NoteWorkspace(root, (_, _) => new Surface());
+                Wait(workspace.InitializeAsync());
+                var references = Enumerable.Range(0, 20).Select(_ => ClosedWindow(workspace)).ToArray();
+                Wait(Task.Delay(25));
+                GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                Require(references.All(reference => !reference.IsAlive));
+            });
         }
         finally { SynchronizationContext.SetSynchronizationContext(previous); }
     }
@@ -71,6 +86,13 @@ internal static class PendingRecoveryUiTests
             if (DateTime.UtcNow >= timeout) throw new TimeoutException("Recovery UI did not finish.");
             await Task.Delay(10);
         }
+    }
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference ClosedWindow(NoteWorkspace workspace)
+    {
+        var window = new PendingRecoveryWindow(workspace, () => { });
+        Wait(window.RefreshAsync()); window.Close();
+        return new WeakReference(window);
     }
     private static void Wait(Task task)
     {

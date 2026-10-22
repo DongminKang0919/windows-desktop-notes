@@ -31,7 +31,7 @@ internal sealed class PendingRecoveryWindow : Window
         Width = 620; Height = 620; MinWidth = 380; MinHeight = 420;
         FontFamily = NoteTheme.Font; Foreground = NoteTheme.Ink;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        var layout = new Grid { Margin = new Thickness(22) };
+        var layout = new Grid { Margin = new Thickness(22), Background = SystemColors.WindowBrush };
         foreach (var height in new[] { GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto, new GridLength(2, GridUnitType.Star), GridLength.Auto })
             layout.RowDefinitions.Add(new RowDefinition { Height = height });
         var help = new TextBlock

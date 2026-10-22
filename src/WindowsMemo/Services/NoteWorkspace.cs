@@ -253,6 +253,8 @@ internal sealed class NoteWorkspace : IDisposable
         {
             await Task.Run(entry.Repository.Purge);
             _entries.Remove(id);
+            foreach (var key in _recoveredPending.Where(pair => pair.Value == id).Select(pair => pair.Key).ToArray())
+                _recoveredPending.Remove(key);
             return true;
         }
         catch (Exception ex) when (IsNoteError(ex)) { entry.Error = "영구 삭제 실패 · 다시 시도하세요"; return false; }
