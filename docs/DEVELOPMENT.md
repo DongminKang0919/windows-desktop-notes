@@ -71,7 +71,7 @@ GitHub Projects 연결 전에는 `BACKLOG.md`로 관리한다. 연결 후 이슈
 
 ## Git와 CI 운영
 
-origin은 https://github.com/DongminKang0919/windows-desktop-notes.git 이며 main을 기준으로 작업한다. PR #15까지 병합했고 0.9.13 원격 Windows 빌드·자동 144개·중단 복구 10건·수명 smoke·UI artifact 성공을 확인했다. GitHub Projects 보드·이슈 연결, 게시자 인증·서명·실제 설치본 업데이트, 8/24시간 상주는 미완료다. 과거 로컬 차단 기록과 현재 실행 결과를 버전별로 구분한다.
+origin은 https://github.com/DongminKang0919/windows-desktop-notes.git 이며 main을 기준으로 작업한다. PR #16까지 병합했고 0.9.14 원격 Windows 빌드·자동 149개·중단 복구 10건·수명 smoke·UI artifact 성공을 확인했다. GitHub Projects 보드·이슈 연결, 게시자 인증·서명·실제 설치본 업데이트, 8/24시간 상주는 미완료다. 과거 로컬 차단 기록과 현재 실행 결과를 버전별로 구분한다.
 
 - `main`을 기본 브랜치로 사용한다.
 - 작업별로 짧은 브랜치를 사용한다. 예: `feat/desktop-attachment`, `fix/note-restore`, `docs/readme`.

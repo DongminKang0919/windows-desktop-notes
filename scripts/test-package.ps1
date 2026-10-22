@@ -53,7 +53,7 @@ $traversal = Copy-TestZip 'traversal'
 $archive = [IO.Compression.ZipFile]::Open($traversal, [IO.Compression.ZipArchiveMode]::Update)
 try { [void]$archive.CreateEntry('../outside.txt') } finally { $archive.Dispose() }
 Set-Checksum $traversal
-Assert-Rejected { & $verify -ZipPath $traversal } '안전하지 않은 상대 경로'
+Assert-Rejected { & $verify -ZipPath $traversal } 'Unsafe archive relative path'
 Write-Output 'PASS: ZIP traversal path rejected'
 Assert-Rejected { & $verify -ZipPath $ZipPath -ExpectedVersion '99.0.0' } 'manifest가 없거나'
 Write-Output 'PASS: wrong product version rejected'

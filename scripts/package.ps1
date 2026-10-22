@@ -28,6 +28,7 @@ if ($version -notmatch '^\d+\.\d+\.\d+$') { throw '공통 버전이 MAJOR.MINOR.
 $expectedAssemblyVersion = [Version]($version + '.0')
 $packageName = "WindowsMemo-$version-win-x64-framework-dependent"
 $runRoot = Join-Path $destinationRoot ('package-' + [Guid]::NewGuid().ToString('N'))
+$buildRoot = Join-Path $runRoot 'build'
 $publishRoot = Join-Path $runRoot $packageName
 $zipPath = Join-Path $runRoot ($packageName + '.zip')
 $hashPath = $zipPath + '.sha256'
@@ -50,15 +51,15 @@ try {
     }
     $sdkVersion = & $sdkPath --version
     if ($LASTEXITCODE -ne 0) { throw 'SDK 버전을 확인하지 못했습니다.' }
-    & $sdkPath build WindowsMemo.slnx --configuration Release --nologo -p:RestoreLockedMode=true
+    & $sdkPath build WindowsMemo.slnx --configuration Release --nologo --artifacts-path $buildRoot -p:RestoreLockedMode=true
     if ($LASTEXITCODE -ne 0) { throw 'Release 빌드에 실패했습니다.' }
-    $testArguments = @('tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll')
+    $testArguments = @((Join-Path $buildRoot 'bin/WindowsMemo.Tests/release/WindowsMemo.Tests.dll'))
     if ($ShellProbe) { $testArguments += '--shell-probe' }
     & $sdkPath @testArguments
     if ($LASTEXITCODE -ne 0) { throw '검증에 실패하여 패키지를 생성하지 않습니다.' }
 
     New-Item -ItemType Directory -Path $publishRoot -ErrorAction Stop | Out-Null
-    & $sdkPath publish src/WindowsMemo/WindowsMemo.csproj --configuration Release --runtime win-x64 --self-contained false --output $publishRoot --nologo -p:RestoreLockedMode=true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false
+    & $sdkPath publish src/WindowsMemo/WindowsMemo.csproj --configuration Release --runtime win-x64 --self-contained false --output $publishRoot --artifacts-path $buildRoot --nologo -p:RestoreLockedMode=true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false
     if ($LASTEXITCODE -ne 0) { throw 'Windows x64 publish에 실패했습니다.' }
     foreach ($required in @('WindowsMemo.exe', 'WindowsMemo.dll', 'WindowsMemo.deps.json', 'WindowsMemo.runtimeconfig.json')) {
         if (-not (Test-Path -LiteralPath (Join-Path $publishRoot $required) -PathType Leaf)) { throw "필수 실행 파일이 없습니다: $required" }
@@ -89,7 +90,7 @@ SDK가 아니라 Desktop Runtime을 선택하세요.
 
 메모 데이터는 %LOCALAPPDATA%\WindowsMemo\Notes에 별도로 저장합니다.
 프로그램 폴더와 함께 메모 데이터 폴더를 삭제하지 마세요.
-저장 스키마는 3이며 이전 스키마 1/2를 읽습니다. 이전 앱 버전으로 데이터 다운그레이드는 지원하지 않습니다.
+저장 스키마는 4이며 이전 스키마 1/2/3을 읽습니다. 이전 앱 버전으로 데이터 다운그레이드는 지원하지 않습니다.
 
 이 ZIP은 설치 프로그램이나 자동 업데이트 패키지가 아닙니다.
 코드 서명과 정식 릴리스 게시, 실제 UI/로그인/다중 모니터/장시간 검토는 남아 있습니다.

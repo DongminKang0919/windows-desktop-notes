@@ -35,6 +35,8 @@ jobs:
           global-json-file: global.json
       - name: Build Release
         run: dotnet build WindowsMemo.slnx --configuration Release --nologo -p:RestoreLockedMode=true
+      - name: Check synthetic ZIP and installer archives
+        run: ./scripts/test-archive-validation.ps1
       # Executable test harness; dotnet test does not run these checks.
       # --shell-probe requires a logged-in desktop and stays a local check.
       - name: Run automated checks
@@ -60,3 +62,9 @@ jobs:
           path: tests/WindowsMemo.Tests/bin/Release/net10.0-windows/ui-previews/*.png
           retention-days: 14
           if-no-files-found: error
+      - name: Verify isolated prototype ZIP generation
+        run: |
+          $results = @(./scripts/package.ps1)
+          $package = @($results | Where-Object { $_.PSObject.Properties.Name -contains 'ChecksumFile' })
+          if ($package.Count -ne 1) { throw 'Expected one isolated ZIP result.' }
+          ./scripts/test-package.ps1 -ZipPath $package[0].Zip
