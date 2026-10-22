@@ -169,13 +169,8 @@ public partial class NoteView : UserControl, IDisposable
     private void RefreshTitle(string text)
     {
         _textLength = text.Length;
-        var content = text.AsSpan().Trim();
-        int newline = content.IndexOfAny('\r', '\n');
-        var heading = (newline < 0 ? content : content[..newline]).TrimStart("☐☑ ");
-        int length = Math.Min(80, heading.Length);
-        if (length > 0 && length < heading.Length && char.IsHighSurrogate(heading[length - 1]) && char.IsLowSurrogate(heading[length])) length--;
-        NoteTitle = length == 0 ? "메모" : heading[..length].ToString();
-        Placeholder.Visibility = content.IsEmpty ? Visibility.Visible : Visibility.Collapsed;
+        NoteTitle = Services.NoteTitleSummary.FromText(text);
+        Placeholder.Visibility = text.AsSpan().Trim().IsEmpty ? Visibility.Visible : Visibility.Collapsed;
     }
     private void Header_OnMouseDown(object sender, MouseButtonEventArgs e)
     { if (e.ClickCount == 2) { SetCollapsed(!IsCollapsed); e.Handled = true; } }

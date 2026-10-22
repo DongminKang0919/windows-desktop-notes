@@ -5,9 +5,10 @@ using WindowsMemo.Views;
 
 namespace WindowsMemo.Services;
 
-internal sealed record NoteListItem(Guid Id, bool Hidden, string? Error, bool Trashed = false, bool Archived = false)
+internal sealed record NoteListItem(Guid Id, bool Hidden, string? Error, bool Trashed = false, bool Archived = false, string Title = "메모")
 {
-    public string Label => $"메모 {Id.ToString("N")[..8]} · {(Error is not null ? "처리 실패" : Trashed ? "휴지통" : Archived ? "보관됨" : Hidden ? "숨김" : "표시 중")}";
+    public string StatusLabel => $"{(Error is not null ? "처리 실패" : Trashed ? "휴지통" : Archived ? "보관됨" : Hidden ? "숨김" : "표시 중")} · {Id.ToString("N")[..8]}";
+    public string Label => $"{Title} · {StatusLabel}";
 }
 
 internal sealed class NoteWorkspace : IDisposable
@@ -20,6 +21,7 @@ internal sealed class NoteWorkspace : IDisposable
         public bool Archived { get; set; }
         public string? Error { get; set; }
         public NoteSession? Session { get; set; }
+        public string Title { get; set; } = "메모";
     }
     private readonly string _root;
     private readonly Dispatcher _dispatcher;
@@ -38,19 +40,25 @@ internal sealed class NoteWorkspace : IDisposable
     private Guid? _lastArchived;
     public bool CanUndoArchive => _lastArchived is { } id && _entries.TryGetValue(id, out var entry) && entry.Archived;
     private IReadOnlyList<NoteListItem> List(bool trashed, bool archived = false) => _entries.Where(pair => pair.Value.Trashed == trashed && pair.Value.Archived == archived)
-        .Select(pair => new NoteListItem(pair.Key, pair.Value.Hidden, pair.Value.Error, pair.Value.Trashed, pair.Value.Archived)).ToArray();
+        .Select(pair => new NoteListItem(pair.Key, pair.Value.Hidden, pair.Value.Error, pair.Value.Trashed, pair.Value.Archived, pair.Value.Title)).ToArray();
 
     public NoteWorkspace(string root, Func<NoteView, NoteBounds?, INoteSurface> createSurface)
     { _root = root; _createSurface = createSurface; _dispatcher = Dispatcher.CurrentDispatcher; }
 
-    private async Task<(NoteRecord? Record, bool Recovered)> LoadAsync(FileNoteRepository repository)
+    private async Task<(NoteRecord? Record, bool Recovered)> LoadAsync(Entry entry)
     {
         // File access/decryption stay off the UI thread; WPF content validation stays on it.
-        return await Task.Run(() =>
+        string title = "메모";
+        var loaded = await Task.Run(() =>
         {
-            var record = repository.Load(value => _dispatcher.Invoke(() => RtfDocumentCodec.Load(value.Rtf)), out bool recovered);
+            var record = entry.Repository.Load(value => _dispatcher.Invoke(() =>
+            {
+                title = NoteTitleSummary.FromDocument(RtfDocumentCodec.Load(value.Rtf));
+            }), out bool recovered);
             return (record, recovered);
         });
+        if (loaded.record is not null) entry.Title = title;
+        return loaded;
     }
     internal static bool IsNoteError(Exception ex) => FileNoteRepository.IsStorageError(ex)
         || ex is InvalidOperationException or System.ComponentModel.Win32Exception;
@@ -72,7 +80,7 @@ internal sealed class NoteWorkspace : IDisposable
                 _entries.Add(id, entry);
                 try
                 {
-                    var loaded = await LoadAsync(entry.Repository);
+                    var loaded = await LoadAsync(entry);
                     if (loaded.Record is null) throw new System.IO.InvalidDataException("메모 파일이 없어졌습니다.");
                     entry.Hidden = loaded.Record.Hidden;
                     entry.Trashed = loaded.Record.DeletedAtUtc is not null;
@@ -80,7 +88,7 @@ internal sealed class NoteWorkspace : IDisposable
                     if (!entry.Hidden && !entry.Trashed && !entry.Archived) Open(entry, loaded.Record);
                     if (loaded.Recovered) Notice?.Invoke(this, "이전 정상 백업에서 메모를 복원했습니다. 최근 변경 일부가 없을 수 있습니다. 원본은 보존됩니다.");
                 }
-                catch (Exception ex) when (IsNoteError(ex)) { entry.Error = "복원하지 못했습니다. 파일은 보존됩니다."; }
+                catch (Exception ex) when (IsNoteError(ex)) { entry.Title = "확인할 수 없는 메모"; entry.Error = "복원하지 못했습니다. 파일은 보존됩니다."; }
             }
             if (_entries.Count == 0) CreateCore(Guid.NewGuid());
         }
@@ -98,6 +106,13 @@ internal sealed class NoteWorkspace : IDisposable
         session.View.ArchiveRequested += OnArchive;
         session.View.ArchiveListRequested += OnArchiveList;
         entry.Session = session;
+        entry.Title = session.View.NoteTitle;
+        session.View.DocumentChanged += (_, _) =>
+        {
+            if (entry.Title == session.View.NoteTitle) return;
+            entry.Title = session.View.NoteTitle;
+            Publish();
+        }; // NoteView.Dispose clears DocumentChanged when this session is hidden/disposed.
         entry.Hidden = false;
         entry.Error = null;
     }
@@ -149,7 +164,7 @@ internal sealed class NoteWorkspace : IDisposable
         _busy = true; Publish();
         try
         {
-            var loaded = await LoadAsync(entry.Repository);
+            var loaded = await LoadAsync(entry);
             if (loaded.Record is null) throw new System.IO.InvalidDataException("메모 파일이 없습니다.");
             if (loaded.Record.DeletedAtUtc is not null) { entry.Trashed = true; entry.Hidden = true; return false; }
             if (loaded.Record.Archived) { entry.Archived = true; entry.Hidden = true; return false; }
@@ -176,7 +191,7 @@ internal sealed class NoteWorkspace : IDisposable
         {
             // Re-read the source: the preview's mutable record is never trusted as save input.
             var verified = await Task.Run(() => new PendingNoteRecovery(_root).Read(preview.Token, preview.Fingerprint));
-            RtfDocumentCodec.Load(verified.Record.Rtf);
+            string title = NoteTitleSummary.FromDocument(RtfDocumentCodec.Load(verified.Record.Rtf));
             if (_disposed) return PendingRecoveryResult.Failed(PendingRecoveryStatus.Busy);
             Guid id = PendingNoteRecovery.CopyId(verified.Token, verified.Fingerprint);
             if (id == verified.Record.Id) return PendingRecoveryResult.Failed(PendingRecoveryStatus.ExistingCopyUnavailable);
@@ -185,7 +200,7 @@ internal sealed class NoteWorkspace : IDisposable
                 failure = PendingRecoveryStatus.ExistingCopyUnavailable;
                 if (existing.Session is null)
                 {
-                    var loaded = await LoadAsync(existing.Repository);
+                    var loaded = await LoadAsync(existing);
                     if (_disposed) return PendingRecoveryResult.Failed(PendingRecoveryStatus.Busy);
                     if (loaded.Record is null) return PendingRecoveryResult.Failed(failure);
                     existing.Hidden = loaded.Record.Hidden;
@@ -205,7 +220,7 @@ internal sealed class NoteWorkspace : IDisposable
             // Durable hidden copy first: failure cannot replace an existing note or lose the source.
             if (!_disposed)
             {
-                _entries.Add(id, new Entry(repository) { Hidden = true });
+                _entries.Add(id, new Entry(repository) { Hidden = true, Title = title });
             }
             return new(id, PendingRecoveryStatus.Created);
         }
@@ -236,7 +251,7 @@ internal sealed class NoteWorkspace : IDisposable
             }
             else
             {
-                var loaded = await LoadAsync(entry.Repository);
+                var loaded = await LoadAsync(entry);
                 if (loaded.Record is null) return false;
                 var now = DateTimeOffset.UtcNow;
                 await Task.Run(() => entry.Repository.Save(loaded.Record with
@@ -254,7 +269,7 @@ internal sealed class NoteWorkspace : IDisposable
         _busy = true; Publish();
         try
         {
-            var loaded = await LoadAsync(entry.Repository);
+            var loaded = await LoadAsync(entry);
             if (loaded.Record?.DeletedAtUtc is null) return false;
             await Task.Run(() => entry.Repository.Save(loaded.Record with
                 { SchemaVersion = 4, Hidden = true, DeletedAtUtc = null, UpdatedAtUtc = DateTimeOffset.UtcNow }));
@@ -298,7 +313,7 @@ internal sealed class NoteWorkspace : IDisposable
             }
             else
             {
-                var loaded = await LoadAsync(entry.Repository);
+                var loaded = await LoadAsync(entry);
                 if (loaded.Record is null) return false;
                 await Task.Run(() => entry.Repository.Save(loaded.Record with
                     { SchemaVersion = 4, Hidden = true, Archived = true, UpdatedAtUtc = DateTimeOffset.UtcNow }));
@@ -315,7 +330,7 @@ internal sealed class NoteWorkspace : IDisposable
         _busy = true; Publish();
         try
         {
-            var loaded = await LoadAsync(entry.Repository);
+            var loaded = await LoadAsync(entry);
             if (loaded.Record is null) return false;
             await Task.Run(() => entry.Repository.Save(loaded.Record with
                 { SchemaVersion = 4, Archived = false, Hidden = true, UpdatedAtUtc = DateTimeOffset.UtcNow }));
