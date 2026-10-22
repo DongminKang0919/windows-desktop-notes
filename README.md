@@ -4,7 +4,7 @@
 
 다른 프로그램을 사용할 때는 창 뒤에 놓이고, 바탕화면 보기에서는 메모를 바로 확인하고 편집할 수 있도록 만들고 있습니다. C#과 WPF로 개발하며 메모는 이 PC에 저장합니다.
 
-> 현재 버전은 **0.9.1 prototype**입니다. 포스트잇 UI와 기존 기능을 유지하면서 입력·자동 저장·창 영역 갱신의 중복 작업을 줄이고 업데이트 패키지 검사를 보강했습니다. 실제 Windows UI와 설치본 업데이트 검증, 정식 릴리스는 남아 있습니다. 바탕화면 부착은 탐색기의 내부 창 구조에 의존하므로 환경에 따라 동작이 달라질 수 있습니다.
+> 현재 버전은 **0.9.2 prototype**입니다. 초기 바탕화면이 준비되지 않아도 임시 창에서 메모를 편집·저장하고, 준비되면 바탕화면에 붙입니다. 연결 복구가 중단된 뒤에도 탐색기 생성·절전 복귀 알림을 받으면 제한된 재시도를 다시 시작합니다. 기존 UI·최적화·저장 형식은 유지합니다. 실제 Windows UI와 설치본 업데이트 검증, 정식 릴리스는 남아 있습니다. 바탕화면 부착은 탐색기의 내부 창 구조에 의존하므로 환경에 따라 동작이 달라질 수 있습니다.
 
 ## 주요 기능
 
@@ -61,7 +61,7 @@ dotnet build WindowsMemo.slnx --configuration Release
 
 ## ZIP 패키지 만들기
 
-프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정에서 읽으며, 현재 앱 버전은 0.9.1입니다.
+프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정에서 읽으며, 현재 앱 버전은 0.9.2입니다.
 
 ```powershell
 .\scripts\package.ps1
@@ -85,7 +85,7 @@ ZIP 전체를 풀고 `WindowsMemo.exe`를 실행합니다. **.NET 10 Desktop Run
 
 ZIP 검증 후 Velopack으로 설치 EXE, full 업데이트 패키지와 피드를 `artifacts/package-GUID/installer`에 만듭니다. 설치 루트는 `%LOCALAPPDATA%\WindowsMemoApp`, 메모는 기존 `%LOCALAPPDATA%\WindowsMemo\Notes`로 분리합니다. .NET 10 Desktop Runtime x64가 없으면 설치기가 다운로드하도록 설정했습니다. 설치기는 완료 후 앱을 실행합니다.
 
-`scripts/verify-installer.ps1 -ReleaseDirectory <폴더> -ExpectedVersion 0.9.1`으로 파일·피드·payload 해시를 검사하고, `scripts/test-installer.ps1 -ReleaseDirectory <폴더>`로 변조 거부를 확인합니다. [수동 installer CI](.github/workflows/installer.yml)는 artifact만 생성합니다. **서명되지 않은 prototype이며 실제 설치·제거·버전 간 업데이트 검증은 남아 있습니다.** 기존 0.7.0 산출물은 [검증 기록](docs/results/INSTALLER-10B1.md)을 참고해 주세요.
+`scripts/verify-installer.ps1 -ReleaseDirectory <폴더> -ExpectedVersion 0.9.2`으로 파일·피드·payload 해시를 검사하고, `scripts/test-installer.ps1 -ReleaseDirectory <폴더>`로 변조 거부를 확인합니다. [수동 installer CI](.github/workflows/installer.yml)는 artifact만 생성합니다. **서명되지 않은 prototype이며 실제 설치·제거·버전 간 업데이트 검증은 남아 있습니다.** 기존 0.7.0 산출물은 [검증 기록](docs/results/INSTALLER-10B1.md)을 참고해 주세요.
 
 ## 로컬 시험 업데이트
 
@@ -128,6 +128,8 @@ ZIP 검증 후 Velopack으로 설치 EXE, full 업데이트 패키지와 피드�
 암호화 데이터는 저장한 Windows 사용자 계정과 PC에서 사용하는 것을 전제로 합니다. 다른 PC·계정으로 옮기는 내보내기·복구 기능은 아직 없습니다. 같은 계정으로 실행되는 다른 프로그램이나 화면·클립보드까지 보호하지는 않습니다. 자세한 기준은 [보안 설계](docs/SECURITY.md)를 참고해 주세요.
 
 ## 현재 검증 범위
+
+0.9.2의 로컬 Release 빌드와 검증 **77개**(자동 76개 + 실제 바탕화면 비표시 호스트 1개)를 통과했습니다. [복구 재개 기록](docs/results/RECOVERY-03A.md), [초기 셸 부재 시 저장·복원](docs/results/STARTUP-03B.md), [임시 창 배치·수명 검증](docs/results/FALLBACK-03C.md)을 참조합니다. 아래 0.9.1 결과는 이전 버전의 검증 이력입니다.
 
 Windows 빌드 26300, x64 환경에서 0.9.1 Release 빌드와 검증 **71개**를 통과했습니다(자동 70개 + 보이지 않는 실제 바탕화면 호스트 1개). 저장·복구·보관·입력 제한·업데이트 패키지 경계와 제품 정보 검사를 포함합니다. 0.9.0의 100/150/200% UI 렌더링 확인과 실제 호스트 부모·WS_CHILD·TopMost 미사용·접힘 검증을 유지합니다. 실제 배율 전환·IME·Win+D 입력 시험과 설치본 업데이트를 대신하지 않습니다.
 
