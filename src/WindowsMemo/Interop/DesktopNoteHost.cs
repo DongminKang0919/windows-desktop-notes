@@ -56,20 +56,25 @@ public sealed class DesktopNoteHost : IDisposable
         if (_opened) throw new InvalidOperationException("메모 창은 이미 열려 있습니다.");
         _visible = visible;
         _parent = _desktopLocator();
-        if (_parent == 0 || !NativeMethods.IsWindow(_parent))
-            throw new InvalidOperationException("Windows 바탕화면 창을 찾지 못했습니다.");
-        _scale = GetScale(_parent);
+        bool desktopReady = _parent != 0 && NativeMethods.IsWindow(_parent);
+        // Keep saved geometry usable for autosave while Explorer is still starting.
+        _scale = desktopReady ? GetScale(_parent) : restoredBounds?.Scale ?? 1;
         _bounds = restoredBounds is null
             ? new PixelBounds(48, 64, (int)(NoteTheme.Width * _scale), (int)(NoteTheme.Height * _scale))
             : new PixelBounds((int)restoredBounds.X, (int)restoredBounds.Y, (int)(restoredBounds.Width * _scale), (int)(restoredBounds.Height * _scale));
         try
         {
-            AttachSurface();
             _view.MoveRequested += OnMove;
             _view.ResizeRequested += OnResize;
             _view.ReconnectRequested += OnReconnect;
             _view.AppearanceChanged += OnAppearance;
             _opened = true;
+            if (desktopReady) AttachSurface();
+            else
+            {
+                ShowFallback();
+                UpdateRecoveryNotice();
+            }
             if (_watchChanges)
             {
                 _taskbarCreated = NativeMethods.RegisterWindowMessage("TaskbarCreated");
@@ -231,7 +236,9 @@ public sealed class DesktopNoteHost : IDisposable
         if (RecoveryStopped) _timer.Stop();
         _view.SetRecoveryMode(RecoveryStopped
             ? "바탕화면 연결을 복구하지 못했습니다. 내용을 유지한 임시 창입니다."
-            : $"바탕화면 연결 복구 중 ({RecoveryAttempts}/{MaxRecoveryAttempts}) · 임시 창에서 계속 편집할 수 있습니다.", true);
+            : RecoveryAttempts == 0
+                ? "바탕화면 준비를 기다리고 있습니다. 임시 창에서 계속 편집할 수 있습니다."
+                : $"바탕화면 연결 복구 중 ({RecoveryAttempts}/{MaxRecoveryAttempts}) · 임시 창에서 계속 편집할 수 있습니다.", true);
     }
 
     private void OnReconnect(object? sender, EventArgs e) => RetryConnection();

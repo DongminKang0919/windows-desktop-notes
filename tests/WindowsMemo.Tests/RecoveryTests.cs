@@ -98,6 +98,25 @@ internal static class RecoveryTests
             Assert(host.Handle != 0 && !host.RecoveryStopped && !host.HasFallback);
             Assert(Text(view).Contains("보존할 내용"));
         });
+        check("바탕화면 없는 첫 실행: 임시 편집·재시도 제한·늦은 연결", () =>
+        {
+            using var replacement = ParentSurface();
+            nint parent = 0;
+            using var view = new NoteView();
+            using var host = new DesktopNoteHost(view, () => parent, watchChanges: false);
+            host.Open(visible: false, restoredBounds: new WindowsMemo.Models.NoteBounds(80, 90, 320, 300, 1.5));
+            Assert(host.HasFallback && host.Handle == 0 && host.RecoveryAttempts == 0);
+            Assert(host.CaptureBounds() == new WindowsMemo.Models.NoteBounds(80, 90, 320, 300, 1.5));
+            view.InsertPlainText("바탕화면 준비 전에도 편집 가능");
+            for (int i = 0; i < 30; i++) host.CheckConnection();
+            Assert(host.RecoveryStopped && host.HasFallback);
+            parent = replacement.Handle;
+            host.RetryConnection();
+            Assert(host.Handle != 0 && !host.HasFallback && !host.RecoveryStopped);
+            Assert(Text(view).Contains("바탕화면 준비 전에도 편집 가능"));
+            var bounds = host.CaptureBounds();
+            Assert(bounds.X == 80 && bounds.Y == 90 && bounds.Width == 320 && bounds.Height == 300);
+        });
         check("20회 표면 재생성 후 원래 내용 유지", () =>
         {
             using var view = new NoteView();

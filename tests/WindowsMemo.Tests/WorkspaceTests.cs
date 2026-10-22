@@ -2,7 +2,9 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows.Documents;
 using System.Windows.Media;
+using System.Windows.Interop;
 using System.Windows.Threading;
+using WindowsMemo.Interop;
 using WindowsMemo.Infrastructure;
 using WindowsMemo.Models;
 using WindowsMemo.Services;
@@ -12,6 +14,21 @@ namespace WindowsMemo.Tests;
 
 internal static class WorkspaceTests
 {
+    private sealed class StartupSurface : INoteSurface
+    {
+        public DesktopNoteHost Host { get; }
+        public NoteView View { get; }
+        public StartupSurface(NoteView view, NoteBounds? bounds, Func<nint> locator)
+        {
+            View = view;
+            Host = new DesktopNoteHost(view, locator, watchChanges: true);
+            try { Host.Open(visible: false, restoredBounds: bounds); }
+            catch { Host.Dispose(); throw; }
+        }
+        public NoteBounds CaptureBounds() => Host.CaptureBounds();
+        public event EventHandler? BoundsChanged { add => Host.BoundsChanged += value; remove => Host.BoundsChanged -= value; }
+        public void Dispose() => Host.Dispose();
+    }
     private sealed class Surface : INoteSurface
     {
         public NoteView? View { get; private set; }
@@ -35,6 +52,56 @@ internal static class WorkspaceTests
         { var surface = new Surface(view); surfaces.Add(surface); return surface; });
         string Text(NoteView view) => new TextRange(view.TextEditor.Document.ContentStart, view.TextEditor.Document.ContentEnd).Text.Trim();
         NoteRecord Load(string folder, Guid id) => new FileNoteRepository(Path.Combine(root, folder), id).Load(record => RtfDocumentCodec.Load(record.Rtf), out _)!;
+        check("바탕화면 없는 초기화: 새 메모 저장·재실행 복원·늦은 재부착", () =>
+        {
+            string folder = Path.Combine(root, "desktop-not-ready");
+            var surfaces = new List<StartupSurface>();
+            nint parent = 0;
+            NoteWorkspace CreateWorkspace() => new(folder, (view, bounds) =>
+            {
+                var surface = new StartupSurface(view, bounds, () => parent);
+                surfaces.Add(surface); return surface;
+            });
+            Guid id;
+            using (var workspace = CreateWorkspace())
+            {
+                Wait(workspace.InitializeAsync());
+                id = workspace.Items.Single().Id;
+                Assert(workspace.Items.Single().Error is null && surfaces[0].Host.HasFallback);
+                var view = surfaces[0].View;
+                view.InsertPlainText("첫 로그인 임시 창에서 저장한 메모");
+                view.TextEditor.SelectAll(); view.ApplyColor(Brushes.RoyalBlue);
+                view.TextEditor.Selection.ApplyPropertyValue(TextElement.FontWeightProperty, System.Windows.FontWeights.Bold);
+                view.SetPaper("Sage");
+                Assert(Wait(workspace.FlushAllAsync()));
+            }
+            using (var workspace = CreateWorkspace())
+            {
+                Wait(workspace.InitializeAsync());
+                Assert(workspace.Items.Single().Id == id && workspace.Items.Single().Error is null);
+                var surface = surfaces[^1];
+                Assert(surface.Host.HasFallback && Text(surface.View) == "첫 로그인 임시 창에서 저장한 메모");
+                Assert(surface.View.Paper == "Sage");
+                var restoredRange = new TextRange(surface.View.TextEditor.Document.ContentStart,
+                    surface.View.TextEditor.Document.ContentEnd.GetPositionAtOffset(-1)!);
+                Assert(restoredRange.GetPropertyValue(TextElement.FontWeightProperty).Equals(System.Windows.FontWeights.Bold));
+                Assert(restoredRange.GetPropertyValue(TextElement.ForegroundProperty) is SolidColorBrush restoredBrush
+                    && restoredBrush.Color == Colors.RoyalBlue);
+                surface.View.TextEditor.SelectAll(); surface.View.InsertPlainText("늦게 연결되어도 최신 편집 보존");
+                using var desktop = new HwndSource(new HwndSourceParameters("Startup test desktop", 1600, 900)
+                    { WindowStyle = unchecked((int)0x80000000) });
+                parent = desktop.Handle; surface.Host.CheckConnection();
+                Assert(surface.Host.Handle != 0 && !surface.Host.HasFallback);
+                Assert(Text(surface.View) == "늦게 연결되어도 최신 편집 보존");
+                Assert(Wait(workspace.FlushAllAsync()));
+                var stored = new FileNoteRepository(folder, id).Load(value => RtfDocumentCodec.Load(value.Rtf), out bool recovered)!;
+                Assert(!recovered && stored.Paper == "Sage" && !stored.Hidden && !stored.Archived);
+                Assert(stored.Bounds == surface.Host.CaptureBounds());
+                var doc = RtfDocumentCodec.Load(stored.Rtf);
+                Assert(new TextRange(doc.ContentStart, doc.ContentEnd).Text.Trim() == "늦게 연결되어도 최신 편집 보존");
+            }
+            Assert(surfaces.All(surface => surface.Host.Handle == 0 && !surface.Host.HasFallback));
+        });
         check("메모 수명: 생성·서식·숨김·재표시·재실행", () =>
         {
             var surfaces = new List<Surface>();
