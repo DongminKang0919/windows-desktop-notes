@@ -20,33 +20,42 @@ internal sealed class NoteListWindow : Window
     private readonly Button _new = Button("새 메모");
     private readonly Button _show;
     private readonly Button _delete;
+    private readonly TextBlock _feedback = new() { TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock _help;
+    private readonly Border _feedbackPanel;
+    private bool _closed;
     private static Button Button(string text) => new() { Content = text, MinHeight = NoteTheme.ToolSize, Padding = NoteTheme.ActionPadding, Margin = new Thickness(0, 8, 8, 0) };
     public NoteListWindow(NoteWorkspace workspace, bool trash = false, bool archive = false)
     {
         _workspace = workspace; _trash = trash; _archive = archive;
         _show = Button(trash || archive ? "선택한 메모 복원" : "선택한 메모 열기");
         _delete = Button(trash ? "영구 삭제" : "휴지통으로 이동");
+        _feedbackPanel = new Border { Child = _feedback, Visibility = Visibility.Collapsed,
+            Padding = NoteTheme.ActionPadding, Margin = new Thickness(0, 8, 0, 0), CornerRadius = NoteTheme.CornerRadius };
+        AutomationProperties.SetAutomationId(_feedback, "NoteListFeedback");
+        AutomationProperties.SetLiveSetting(_feedback, AutomationLiveSetting.Polite);
         Title = trash ? "Windows 메모 · 휴지통" : archive ? "Windows 메모 · 보관함" : "Windows 메모 · 메모 목록";
         Width = 520; Height = 480; MinWidth = 380; MinHeight = 400;
         FontFamily = NoteTheme.Font; FontSize = NoteTheme.BodySize; Foreground = NoteTheme.Ink; Background = NoteTheme.Surface;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         var panel = new Grid { Margin = NoteTheme.WindowPadding };
-        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto })
+        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto })
             panel.RowDefinitions.Add(new RowDefinition { Height = height });
         panel.Children.Add(new TextBlock { Text = trash ? "휴지통" : archive ? "보관함" : "메모 목록", FontSize = NoteTheme.TitleSize, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 10) });
-        var help = new TextBlock
+        _help = new TextBlock
         {
             Text = trash ? "복원하면 숨김 상태로 메모 목록에 돌아갑니다. 영구 삭제는 되돌릴 수 없습니다. 자동으로 비우지 않습니다."
                 : archive ? "보관한 메모입니다. 복원하면 메모 목록으로 돌아갑니다."
                 : "숨긴 메모는 다시 열 수 있습니다. 보관한 메모는 트레이의 보관함에 있습니다.",
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,0,0,12)
         };
-        Grid.SetRow(help, 1); panel.Children.Add(help);
+        Grid.SetRow(_help, 1); panel.Children.Add(_help);
         Grid.SetRow(_count, 2); panel.Children.Add(_count);
         var buttons = new WrapPanel();
         if (!trash && !archive) buttons.Children.Add(_new);
         buttons.Children.Add(_show); buttons.Children.Add(_delete);
-        Grid.SetRow(buttons, 4); panel.Children.Add(buttons);
+        Grid.SetRow(_feedbackPanel, 4); panel.Children.Add(_feedbackPanel);
+        Grid.SetRow(buttons, 5); panel.Children.Add(buttons);
         _list.ItemsSource = _items; _list.DisplayMemberPath = ""; _list.ItemTemplate = ItemTemplate();
         _list.BorderBrush = NoteTheme.Line; _list.Background = SystemColors.WindowBrush;
         _list.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled);
@@ -64,8 +73,9 @@ internal sealed class NoteListWindow : Window
         Grid.SetRow(_empty, 3); panel.Children.Add(_empty); Content = panel;
         _new.Click += (_, _) =>
         {
-            try { workspace.Create(); }
-            catch (Exception ex) when (NoteWorkspace.IsNoteError(ex)) { MessageBox.Show(this, "새 메모를 열지 못했습니다. 기존 내용은 유지됩니다.", "Windows 메모"); }
+            if (!CanPresent || workspace.IsBusy) return;
+            try { workspace.Create(); SetFeedback("새 메모를 만들었습니다."); }
+            catch (Exception ex) when (NoteWorkspace.IsNoteError(ex)) { SetFeedback("새 메모를 열지 못했습니다. 기존 내용은 유지됩니다. 다시 시도하세요.", failed: true); }
         };
         _show.Click += async (_, _) => await ShowSelectedAsync();
         _delete.Click += async (_, _) => await DeleteSelectedAsync();
@@ -81,7 +91,13 @@ internal sealed class NoteListWindow : Window
         };
         _list.SelectionChanged += (_, _) => UpdateButtons();
         workspace.Changed += OnChanged;
-        Closed += (_, _) => { workspace.Changed -= OnChanged; _list.ItemsSource = null; _items.Clear(); };
+        Closed += (_, _) =>
+        {
+            _closed = true; workspace.Changed -= OnChanged;
+            _list.ItemsSource = null; _items.Clear();
+            _feedback.Text = ""; AutomationProperties.SetName(_feedback, "");
+            _feedbackPanel.Visibility = Visibility.Collapsed;
+        };
         Refresh();
     }
     private static DataTemplate ItemTemplate()
@@ -101,22 +117,37 @@ internal sealed class NoteListWindow : Window
     }
     private async Task ShowSelectedAsync()
     {
-        if (_workspace.IsBusy || _list.SelectedItem is not NoteListItem item) return;
+        if (!CanPresent || _workspace.IsBusy || _list.SelectedItem is not NoteListItem item) return;
+        SetFeedback(_trash || _archive ? "메모를 복원하고 있습니다…" : "메모를 열고 있습니다…");
         bool success = _trash ? await _workspace.RestoreAsync(item.Id) : _archive ? await _workspace.UnarchiveAsync(item.Id) : await _workspace.ShowAsync(item.Id);
-        if (!success) MessageBox.Show("메모를 복원하지 못했습니다. 남아 있는 파일은 보존됩니다.", "메모 복원 실패");
+        SetFeedback(success ? _trash || _archive ? "메모 목록으로 복원했습니다. 목록에서 열 수 있습니다." : "메모를 열었습니다."
+            : "메모를 열거나 복원하지 못했습니다. 남아 있는 파일은 보존됩니다. 다시 시도하세요.", failed: !success);
     }
     private async Task DeleteSelectedAsync()
     {
-        if (_workspace.IsBusy || _list.SelectedItem is not NoteListItem item) return;
+        if (!CanPresent || _workspace.IsBusy || _list.SelectedItem is not NoteListItem item) return;
         if (_trash)
         {
             var answer = MessageBox.Show(this, "이 메모의 본문·백업·손상 보존본을 영구 삭제할까요? 이 작업은 되돌릴 수 없습니다.",
                 "메모 영구 삭제", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
             if (answer != MessageBoxResult.Yes) return;
         }
+        if (!CanPresent || _workspace.IsBusy) return;
+        SetFeedback(_trash ? "영구 삭제를 처리하고 있습니다…" : "휴지통으로 옮기고 있습니다…");
         bool success = _trash ? await _workspace.PermanentlyDeleteAsync(item.Id, confirmed: true) : await _workspace.TrashAsync(item.Id);
-        if (!success) MessageBox.Show(_trash ? "영구 삭제를 끝내지 못했습니다. 남은 파일은 휴지통에서 다시 삭제할 수 있습니다."
-            : "휴지통으로 옮기지 못했습니다. 내용을 유지하고 있습니다.", "메모 처리 실패");
+        SetFeedback(success ? _trash ? "메모를 영구 삭제했습니다." : "휴지통으로 옮겼습니다. 휴지통에서 복원할 수 있습니다."
+            : _trash ? "영구 삭제를 끝내지 못했습니다. 남은 파일은 휴지통에서 다시 삭제할 수 있습니다."
+            : "휴지통으로 옮기지 못했습니다. 내용을 유지하고 있습니다. 다시 시도하세요.", failed: !success);
+    }
+    private bool CanPresent => !_closed && _workspace.SessionEndState != SessionEndState.Disposed;
+    private void SetFeedback(string text, bool failed = false)
+    {
+        if (!CanPresent) return;
+        _feedback.Text = text;
+        AutomationProperties.SetName(_feedback, text);
+        _feedbackPanel.Background = failed ? NoteTheme.Butter : NoteTheme.Sage;
+        _feedbackPanel.Visibility = Visibility.Visible;
+        _help.Visibility = Visibility.Collapsed;
     }
     private void OnChanged(object? sender, EventArgs e) => Refresh();
     private void UpdateButtons()
@@ -126,6 +157,7 @@ internal sealed class NoteListWindow : Window
     }
     private void Refresh()
     {
+        if (_closed) return;
         Guid? selected = (_list.SelectedItem as NoteListItem)?.Id;
         var items = _trash ? _workspace.TrashItems : _archive ? _workspace.ArchiveItems : _workspace.Items;
         if (_items.Select(item => item.Id).SequenceEqual(items.Select(item => item.Id)))
