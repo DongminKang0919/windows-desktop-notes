@@ -54,7 +54,7 @@ internal sealed class NoteListWindow : Window
         style.Setters.Add(new Setter(HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
         style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(10, 8, 10, 8)));
         style.Setters.Add(new Setter(MinHeightProperty, 52.0));
-        style.Setters.Add(new Setter(AutomationProperties.NameProperty, new Binding(nameof(NoteListItem.Label))));
+        style.Setters.Add(new Setter(AutomationProperties.NameProperty, new Binding(nameof(NoteListItem.Label)) { Mode = BindingMode.OneTime }));
         _list.ItemContainerStyle = style;
         Grid.SetRow(_list, 3); panel.Children.Add(_list);
         _empty.Text = trash ? "휴지통이 비어 있습니다.\n삭제한 메모는 이곳에서 복원할 수 있습니다."
@@ -81,19 +81,19 @@ internal sealed class NoteListWindow : Window
         };
         _list.SelectionChanged += (_, _) => UpdateButtons();
         workspace.Changed += OnChanged;
-        Closed += (_, _) => workspace.Changed -= OnChanged;
+        Closed += (_, _) => { workspace.Changed -= OnChanged; _list.ItemsSource = null; _items.Clear(); };
         Refresh();
     }
     private static DataTemplate ItemTemplate()
     {
         var row = new FrameworkElementFactory(typeof(StackPanel));
         var title = new FrameworkElementFactory(typeof(TextBlock));
-        title.SetBinding(TextBlock.TextProperty, new Binding(nameof(NoteListItem.Title)));
+        title.SetBinding(TextBlock.TextProperty, new Binding(nameof(NoteListItem.Title)) { Mode = BindingMode.OneTime });
         title.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
         title.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
         row.AppendChild(title);
         var status = new FrameworkElementFactory(typeof(TextBlock));
-        status.SetBinding(TextBlock.TextProperty, new Binding(nameof(NoteListItem.StatusLabel)));
+        status.SetBinding(TextBlock.TextProperty, new Binding(nameof(NoteListItem.StatusLabel)) { Mode = BindingMode.OneTime });
         status.SetValue(TextBlock.ForegroundProperty, NoteTheme.MutedInk);
         status.SetValue(TextBlock.FontSizeProperty, NoteTheme.MetaSize);
         status.SetValue(MarginProperty, new Thickness(0, 4, 0, 0)); row.AppendChild(status);

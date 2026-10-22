@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using WindowsMemo.Infrastructure;
 using WindowsMemo.Models;
@@ -78,10 +79,13 @@ internal static class NoteListTests
                 using var f = new Fixture(); var window = new NoteListWindow(f.Workspace);
                 try
                 {
+                    var layout = (Grid)window.Content;
+                    layout.Measure(new Size(432, 376)); layout.Arrange(new Rect(0, 0, 432, 376)); layout.UpdateLayout();
                     var list = List(window); list.SelectedItem = list.Items.OfType<NoteListItem>().Single(item => item.Id == f.First);
                     Click(Action(window, "선택한 메모 열기")); Wait(Until(() => !f.Workspace.IsBusy && f.Surfaces.Count == 1));
                     var view = f.Surfaces.Single().View; view.TextEditor.SelectAll(); view.InsertPlainText("새로운 첫 줄");
                     Require(((NoteListItem)list.SelectedItem).Id == f.First && ((NoteListItem)list.SelectedItem).Title == "새로운 첫 줄");
+                    layout.UpdateLayout(); Require(Visuals(layout).OfType<TextBlock>().Any(text => text.Text == "새로운 첫 줄"));
                     int changes = 0; f.Workspace.Changed += (_, _) => changes++;
                     view.InsertPlainText("\n본문만 추가"); Require(changes == 0);
                     Require(Wait(f.Workspace.HideAsync(f.First)));
@@ -165,8 +169,19 @@ internal static class NoteListTests
         finally { SynchronizationContext.SetSynchronizationContext(previous); }
     }
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static WeakReference ClosedWindow(NoteWorkspace workspace) { var window = new NoteListWindow(workspace); window.Close(); return new(window); }
+    private static WeakReference ClosedWindow(NoteWorkspace workspace)
+    {
+        var window = new NoteListWindow(workspace); var layout = (Grid)window.Content;
+        layout.Measure(new Size(432, 376)); layout.Arrange(new Rect(0, 0, 432, 376)); layout.UpdateLayout();
+        window.Close(); return new(window);
+    }
     private static ListBox List(Window window) => ((Grid)window.Content).Children.OfType<ListBox>().Single();
+    private static IEnumerable<DependencyObject> Visuals(DependencyObject root)
+    {
+        yield return root;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            foreach (var child in Visuals(VisualTreeHelper.GetChild(root, i))) yield return child;
+    }
     private static Button Action(Window window, string text) => ((Grid)window.Content).Children.OfType<WrapPanel>().Single().Children.OfType<Button>().Single(button => Equals(button.Content, text));
     private static void Click(Button button) { Require(button.IsEnabled); button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }
     private static string[] Fingerprint(string root) => Directory.GetFiles(root).OrderBy(path => path, StringComparer.Ordinal)
