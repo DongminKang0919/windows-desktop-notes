@@ -95,12 +95,32 @@ internal static class WorkspaceTests
             surfaces[1].View!.TextEditor.SelectAll(); surfaces[1].View!.InsertPlainText("둘째 수정");
             var repo = new FileNoteRepository(Path.Combine(root, "exit-failure"), ids[0]);
             using (var held = new FileStream(repo.PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-                Assert(!Wait(workspace.FlushAllAsync()));
+                Assert(!Wait(workspace.SaveThenAsync(() => throw new Exception("must not apply after save failure"))));
             Assert(surfaces.All(surface => !surface.Disposed && surface.View!.IsEnabled));
             var second = RtfDocumentCodec.Load(Load("exit-failure", ids[1]).Rtf);
             Assert(new TextRange(second.ContentStart, second.ContentEnd).Text.Trim() == "둘째 수정");
             Assert(Wait(workspace.FlushAllAsync()));
             workspace.Dispose(); Assert(surfaces.All(surface => surface.Disposed));
+        });
+        check("업데이트 저장: 적용 중 편집·생성 차단, 적용 오류 후 편집 복구", () =>
+        {
+            var surfaces = new List<Surface>(); using var workspace = Workspace("update-handoff", surfaces);
+            Wait(workspace.InitializeAsync()); surfaces[0].View!.InsertPlainText("업데이트 전 내용");
+            bool called = false;
+            Assert(Wait(workspace.SaveThenAsync(() =>
+            {
+                called = true;
+                Assert(workspace.IsBusy && !surfaces[0].View!.IsEnabled);
+                workspace.Create(); Assert(workspace.Items.Count == 1);
+                var document = RtfDocumentCodec.Load(Load("update-handoff", workspace.Items.Single().Id).Rtf);
+                Assert(new TextRange(document.ContentStart, document.ContentEnd).Text.Trim() == "업데이트 전 내용");
+            })));
+            Assert(called && !workspace.IsBusy && surfaces[0].View!.IsEnabled);
+            bool failed = false;
+            try { Wait(workspace.SaveThenAsync(() => throw new IOException("update failed"))); }
+            catch (IOException) { failed = true; }
+            Assert(failed && !workspace.IsBusy && surfaces[0].View!.IsEnabled);
+            Assert(Text(surfaces[0].View!) == "업데이트 전 내용");
         });
         check("복원 실패: 손상 메모 보존과 정상 메모 독립 복원", () =>
         {

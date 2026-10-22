@@ -1,6 +1,6 @@
 # 버전 및 자동 업데이트 설계
 
-2026-10-13 자동 업데이트 요구사항을 반영한 초기 설계다. 앱 prototype과 공통 버전 설정은 구현했고 현재 로컬 개발 버전은 0.6.0이다. Windows x64 framework-dependent ZIP 패키징을 구현했다. 설치 프로그램·서명·업데이트 서버는 아직 구현 또는 연결되지 않았다.
+2026-10-22 갱신. 현재 로컬 개발 버전은 0.8.0 prototype이다. ZIP·Velopack 설치 파일 생성과 로컬 시험 업데이트 경로를 구현했다. 실제 설치본 간 업데이트·서명·업데이트 서버는 미검증 또는 미연결이다. 아래 자동 적용 주기는 후속 설계이며 현재 구현 동작은 마지막 절을 따른다.
 
 ## 버전 관리
 
@@ -106,3 +106,13 @@ package-installer.ps1은 검증된 ZIP payload에서 설치 EXE와 full nupkg �
 수동 installer CI는 artifact만 생성하며 Releases 업로드는 하지 않는다. 파일 해시는 손상 확인용이다. 게시자 서명·공개/비공개 배포 방식·설치와 제거 시 데이터 보존·두 버전 간 업데이트·런타임 없는 머신 검증은 후속으로 남긴다. [검증 기록](results/INSTALLER-10B1.md).
 
 참조: [Velopack 시작 훅](https://docs.velopack.io/integrating/overview), [CLI pack](https://docs.velopack.io/reference/cli/content/vpk-windows), [런타임 bootstrap](https://docs.velopack.io/packaging/bootstrapping), [설치 위치](https://docs.velopack.io/packaging/installer), [고정 패키지](https://www.nuget.org/packages/Velopack/1.2.161).
+
+## 0.8.0 prototype 로컬 시험 업데이트 (WM-010B2A)
+
+0.7.0의 설치 준비에 이어 UpdateManager 어댑터와 트레이의 수동 확인·다운로드·저장 후 적용을 구현했다. `--update-test-source <로컬 절대 폴더>`로 설치본을 실행한 경우에만 활성화한다. 외부 배포 주소와 인증 정보는 포함하지 않는다. full 패키지만 허용하며 downgrade와 prerelease는 거부한다.
+
+UpdaterService는 중복 작업과 종료 후 적용을 차단한다. NoteWorkspace.SaveThenAsync는 모든 표시 메모를 저장하고 편집·생성을 막은 상태에서 적용을 호출한다. 저장 실패 시 적용하지 않으며 적용 요청이 예외를 던지면 편집을 복구한다. 로컬 피드·다운로드·적용 직전 캐시의 크기와 SHA256을 검사한다. 동일 계정의 파일 교체 경쟁이나 게시자 위조를 완전히 방어한다고 주장하지 않는다.
+
+시작 훅에 SetAutoApplyOnStartup(false)를 적용해 다운로드된 시험 패키지가 다음 일반 실행 때 자동 적용되지 않게 했다. 현재는 명시적인 저장 후 수동 적용만 지원한다. 시작 시/24시간 주기 확인, 다음 정상 실행 적용, 원격 배포·서명은 후속이다. 설치본 두 버전 간 실제 적용과 데이터 보존, UI, 제거·런타임 bootstrap 검증도 남아 있다. [검증 기록](results/UPDATE-10B2A.md).
+
+참조: [Velopack 적용 및 오류 처리](https://docs.velopack.io/integrating/overview), [업데이트 소스](https://docs.velopack.io/integrating/update-sources). API 호환성은 고정된 1.2.161 패키지와 Release 빌드로 확인했다.

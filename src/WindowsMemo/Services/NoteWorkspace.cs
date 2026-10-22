@@ -214,7 +214,11 @@ internal sealed class NoteWorkspace : IDisposable
         finally { _busy = false; Publish(); }
     }
 
-    public async Task<bool> FlushAllAsync()
+    public Task<bool> FlushAllAsync() => SaveThenAsync(null);
+
+    // Keep editing and workspace mutations blocked until the update/exit handoff finishes.
+    public Task<bool> SaveThenAsync(Action? afterSave) => FlushCoreAsync(afterSave);
+    private async Task<bool> FlushCoreAsync(Action? afterSave)
     {
         if (IsBusy) return false;
         _busy = true; Publish();
@@ -225,6 +229,7 @@ internal sealed class NoteWorkspace : IDisposable
             bool success = true;
             // Try every visible note; one failure must not discard or skip another note.
             foreach (var session in sessions) if (!await session.FlushAsync()) success = false;
+            if (success) afterSave?.Invoke();
             return success;
         }
         finally

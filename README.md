@@ -4,7 +4,7 @@
 
 다른 프로그램을 사용할 때는 창 뒤에 놓이고, 바탕화면 보기에서는 메모를 바로 확인하고 편집할 수 있도록 만들고 있습니다. C#과 WPF로 개발하며 메모는 이 PC에 저장합니다.
 
-> 현재 버전은 **0.7.0 prototype**입니다. 여러 메모·트레이·숨김 상태 복원·휴지통·로그인 자동 실행 옵션을 구현했으며, Windows x64 ZIP과 prototype 설치 파일 생성을 지원합니다. 설치·업데이트 실행 검토와 정식 릴리스는 남아 있습니다. 바탕화면 부착은 Windows 탐색기의 내부 창 구조에 의존하므로 환경에 따라 동작이 달라질 수 있습니다.
+> 현재 버전은 **0.8.0 prototype**입니다. 여러 메모·트레이·휴지통·로그인 자동 실행과 ZIP·설치 파일 생성을 지원합니다. 로컬 시험 업데이트의 확인·다운로드·저장 후 적용 경로를 추가했으며, 실제 설치본 간 업데이트 검증과 정식 릴리스는 남아 있습니다. 바탕화면 부착은 Windows 탐색기의 내부 창 구조에 의존하므로 환경에 따라 동작이 달라질 수 있습니다.
 
 ## 주요 기능
 
@@ -50,7 +50,7 @@ dotnet build WindowsMemo.slnx --configuration Release
 
 ## ZIP 패키지 만들기
 
-프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정에서 읽으며, 현재 앱 버전은 0.7.0입니다.
+프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정에서 읽으며, 현재 앱 버전은 0.8.0입니다.
 
 ```powershell
 .\scripts\package.ps1
@@ -74,7 +74,19 @@ ZIP 전체를 풀고 `WindowsMemo.exe`를 실행합니다. **.NET 10 Desktop Run
 
 ZIP 검증 후 Velopack으로 설치 EXE, full 업데이트 패키지와 피드를 `artifacts/package-GUID/installer`에 만듭니다. 설치 루트는 `%LOCALAPPDATA%\WindowsMemoApp`, 메모는 기존 `%LOCALAPPDATA%\WindowsMemo\Notes`로 분리합니다. .NET 10 Desktop Runtime x64가 없으면 설치기가 다운로드하도록 설정했습니다. 설치기는 완료 후 앱을 실행합니다.
 
-`scripts/verify-installer.ps1 -ReleaseDirectory <폴더> -ExpectedVersion 0.7.0`으로 파일·피드·payload 해시를 검사하고, `scripts/test-installer.ps1 -ReleaseDirectory <폴더>`로 변조 거부를 확인합니다. [수동 installer CI](.github/workflows/installer.yml)는 artifact만 생성합니다. **서명되지 않은 prototype이며 자동 업데이트 기능과 실제 설치·제거·버전 간 업데이트 검증은 남아 있습니다.** 상세는 [검증 기록](docs/results/INSTALLER-10B1.md)을 참고해 주세요.
+`scripts/verify-installer.ps1 -ReleaseDirectory <폴더> -ExpectedVersion 0.8.0`으로 파일·피드·payload 해시를 검사하고, `scripts/test-installer.ps1 -ReleaseDirectory <폴더>`로 변조 거부를 확인합니다. [수동 installer CI](.github/workflows/installer.yml)는 artifact만 생성합니다. **서명되지 않은 prototype이며 실제 설치·제거·버전 간 업데이트 검증은 남아 있습니다.** 기존 0.7.0 산출물은 [검증 기록](docs/results/INSTALLER-10B1.md)을 참고해 주세요.
+
+## 로컬 시험 업데이트
+
+설치본을 종료한 후 설치된 실행 파일에 시험 폴더를 지정합니다. 폴더에는 신뢰하는 로컬 빌드의 `releases.win.json`과 더 높은 정식 버전의 full nupkg를 둡니다. 0.7.0에는 업데이트 UI가 없으므로 이 경로의 실제 시험에는 0.8.0 이상 설치본 두 버전이 필요합니다.
+
+```powershell
+& "$env:LOCALAPPDATA\WindowsMemoApp\current\WindowsMemo.exe" --update-test-source 'C:\UpdateTest'
+```
+
+트레이의 **업데이트 확인 (로컬 시험)**으로 다운로드하고, **저장 후 업데이트**를 선택해 확인하면 모든 메모를 저장한 뒤 재시작합니다. 저장 또는 적용 요청에 실패하면 편집기를 유지합니다. 다운로드만으로 적용하거나 앱 시작 때 자동 적용하지 않습니다. 일반 실행·로그인 실행에서는 시험 메뉴가 없으며 ZIP·진단 모드의 업데이트 시험은 지원하지 않습니다. 시험 폴더는 실행 인수로만 지정하며 로그인 옵션에 저장하지 않습니다.
+
+서명되지 않은 로컬 시험용입니다. 원격 주소·다른 제품·시험판·delta 패키지는 받지 않습니다. 피드 1MiB·100항목, 패키지 256MiB 제한과 경로·크기·SHA256 검사를 적용합니다. 해시는 게시자 인증을 대신하지 않습니다. 공개 자동 업데이트와 설치본 간 데이터 보존 검증은 후속입니다. [구현·검증 기록](docs/results/UPDATE-10B2A.md).
 
 ## 사용 방법
 
@@ -106,7 +118,7 @@ ZIP 검증 후 Velopack으로 설치 EXE, full 업데이트 패키지와 피드�
 
 ## 현재 검증 범위
 
-Windows 빌드 26200.9457, x64 환경에서 0.7.0 Release 빌드와 검증 **53개**를 통과했습니다(자동 52개 + 실제 바탕화면 호스트 1개). 기존 저장·복구와 여러 메모 데이터 격리·숨김·재표시·종료 실패·반복 해제·저장 형식 호환성, 휴지통 왕복·처리 실패·영구 삭제·삭제 후 재실행, 자동 실행 등록·실패·경로 처리와 격리 레지스트리 왕복을 포함합니다.
+Windows 빌드 26300, x64 환경에서 0.8.0 Release 빌드와 검증 **61개**를 통과했습니다(자동 60개 + 보이지 않는 실제 바탕화면 호스트 1개). 기존 저장·복구·여러 메모·휴지통·자동 실행 검증에 업데이트 상태 전이, 저장 실패 시 적용 차단, 적용 중 편집 차단, 로컬 피드·패키지 변조 거부를 추가했습니다. 실제 설치본의 업데이트 실행과 UI 클릭은 포함되지 않습니다.
 
 Win+D, 실제 한글 조합, 창 복원 후 표시 순서와 바탕화면 아이콘 클릭은 0.1.0에서 사용자 확인을 받았습니다. **0.6.0의 실제 로그인·자동 실행 옵션 클릭, 휴지통·영구 삭제 확인 UI, 트레이·목록·닫기/재표시·앱 재실행, 입력·Win+D 회귀, 탐색기 재시작, 여러 모니터·혼합 배율, 가상 데스크톱, 절전 복귀, 장시간 상주 검증은 남아 있습니다.**
 
