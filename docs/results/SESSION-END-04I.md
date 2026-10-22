@@ -40,6 +40,8 @@ Run 종료 시 세션 이벤트를 해제하고 준비 객체를 먼저 폐기�
 
 ## 로컬 검증
 
+코드 커밋 `0a158d2`의 [Windows CI](https://github.com/DongminKang0919/windows-desktop-notes/actions/runs/39776147837) 작업 로그도 확인했다. Release 경고·오류 0, 자동 **137개**(기존 126 + 종료 11), 중단 복구 **10건**, 수명 smoke(잔존 창·문서 참조 0·원본 보존·최종 재시도 성공), 측정 로그 및 UI 렌더 artifact 업로드 모두 통과했다. 실제 로그아웃·재부팅 검증으로 해석하지 않는다. 문서 결과 추가 커밋의 최종 CI 상태는 [PR #13](https://github.com/DongminKang0919/windows-desktop-notes/pull/13)에 연결한다.
+
 별도 `artifacts/session-ending-validation`에 Release 빌드: 경고·오류 0. 최종 하네스 **138개 PASS**(자동 137개 + 실제 비표시 바탕화면 호스트 1개). 이번 실행은 앱 제어 정책 차단 없이 성공했으며 보안 설정·서명·화이트리스트·우회 실행을 변경하지 않았다. 이전 버전의 차단 기록은 해당 결과 문서에 그대로 유지한다.
 
 새 종료 검사 11개는 다음을 확인한다.
