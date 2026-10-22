@@ -157,6 +157,8 @@ internal static class RecoveryTests
         first.Dispose(); parent = 0;
         for (int i = 0; i < DesktopNoteHost.MaxRecoveryAttempts; i++) host.CheckConnection();
         Assert(host.RecoveryStopped && host.HasFallback);
+        // Existing error UI expands a collapsed note to expose its reconnect action.
+        Assert(!view.IsCollapsed && view.Paper == "Peach" && Text(view) == before);
         int stoppedLookups = lookups;
         SendMessage(observer, 0x001A, 0, 0); // Settings alone must not restart a stopped retry loop.
         SendMessage(observer, 0x0218, 0x0A, 0); // Battery/power status change is not resume.
@@ -175,6 +177,8 @@ internal static class RecoveryTests
         for (int i = 0; i < 30; i++) host.CheckConnection();
         Assert(host.RecoveryStopped && lookups == stoppedLookups + DesktopNoteHost.MaxRecoveryAttempts);
         parent = replacement.Handle;
+        // A fresh user choice made in the fallback must survive successful reattachment.
+        view.SetCollapsed(true);
         SendMessage(observer, message, power ? 7 : 0, 0);
         DrainMessages();
         Assert(host.Handle != 0 && !host.HasFallback && host.RecoveryAttempts == 0);
