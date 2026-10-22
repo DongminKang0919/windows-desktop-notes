@@ -129,6 +129,7 @@ internal static class Program
             WorkspaceTests.Run(Check);
             PendingRecoveryUiTests.Run(Check);
             PreviewSchedulingTests.Run(Check);
+            NoteListTests.Run(Check);
             StartupTests.Run(Check);
             UpdateTests.Run(Check);
             UpdatePackageTests.Run(Check);

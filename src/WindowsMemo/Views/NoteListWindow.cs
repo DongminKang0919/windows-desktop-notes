@@ -1,5 +1,9 @@
+using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Input;
 using WindowsMemo.Services;
 
 namespace WindowsMemo.Views;
@@ -10,19 +14,26 @@ internal sealed class NoteListWindow : Window
     private readonly bool _trash;
     private readonly bool _archive;
     private readonly ListBox _list = new() { DisplayMemberPath = nameof(NoteListItem.Label) };
+    private readonly ObservableCollection<NoteListItem> _items = [];
+    private readonly TextBlock _count = new() { Foreground = NoteTheme.MutedInk, FontSize = NoteTheme.MetaSize, Margin = new Thickness(0, 0, 0, 8) };
+    private readonly TextBlock _empty = new() { TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center, Foreground = NoteTheme.MutedInk, Margin = new Thickness(20) };
     private readonly Button _new = Button("새 메모");
     private readonly Button _show;
     private readonly Button _delete;
-    private static Button Button(string text) => new() { Content = text, Padding = new Thickness(12,6,12,6), Margin = new Thickness(4) };
+    private static Button Button(string text) => new() { Content = text, MinHeight = NoteTheme.ToolSize, Padding = NoteTheme.ActionPadding, Margin = new Thickness(0, 8, 8, 0) };
     public NoteListWindow(NoteWorkspace workspace, bool trash = false, bool archive = false)
     {
         _workspace = workspace; _trash = trash; _archive = archive;
         _show = Button(trash || archive ? "선택한 메모 복원" : "선택한 메모 열기");
         _delete = Button(trash ? "영구 삭제" : "휴지통으로 이동");
         Title = trash ? "Windows 메모 · 휴지통" : archive ? "Windows 메모 · 보관함" : "Windows 메모 · 메모 목록";
-        Width = 500; Height = 440; MinWidth = 350; MinHeight = 280;
+        Width = 520; Height = 480; MinWidth = 380; MinHeight = 400;
+        FontFamily = NoteTheme.Font; FontSize = NoteTheme.BodySize; Foreground = NoteTheme.Ink; Background = NoteTheme.Surface;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        var panel = new DockPanel { Margin = new Thickness(16) };
+        var panel = new Grid { Margin = NoteTheme.WindowPadding };
+        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto })
+            panel.RowDefinitions.Add(new RowDefinition { Height = height });
+        panel.Children.Add(new TextBlock { Text = trash ? "휴지통" : archive ? "보관함" : "메모 목록", FontSize = NoteTheme.TitleSize, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 10) });
         var help = new TextBlock
         {
             Text = trash ? "복원하면 숨김 상태로 메모 목록에 돌아갑니다. 영구 삭제는 되돌릴 수 없습니다. 자동으로 비우지 않습니다."
@@ -30,12 +41,27 @@ internal sealed class NoteListWindow : Window
                 : "숨긴 메모는 다시 열 수 있습니다. 보관한 메모는 트레이의 보관함에 있습니다.",
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,0,0,12)
         };
-        DockPanel.SetDock(help, Dock.Top); panel.Children.Add(help);
+        Grid.SetRow(help, 1); panel.Children.Add(help);
+        Grid.SetRow(_count, 2); panel.Children.Add(_count);
         var buttons = new WrapPanel();
         if (!trash && !archive) buttons.Children.Add(_new);
         buttons.Children.Add(_show); buttons.Children.Add(_delete);
-        DockPanel.SetDock(buttons, Dock.Bottom); panel.Children.Add(buttons);
-        panel.Children.Add(_list); Content = panel;
+        Grid.SetRow(buttons, 4); panel.Children.Add(buttons);
+        _list.ItemsSource = _items; _list.DisplayMemberPath = ""; _list.ItemTemplate = ItemTemplate();
+        _list.BorderBrush = NoteTheme.Line; _list.Background = SystemColors.WindowBrush;
+        _list.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled);
+        var style = new Style(typeof(ListBoxItem));
+        style.Setters.Add(new Setter(HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
+        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(10, 8, 10, 8)));
+        style.Setters.Add(new Setter(MinHeightProperty, 52.0));
+        style.Setters.Add(new Setter(AutomationProperties.NameProperty, new Binding(nameof(NoteListItem.Label))));
+        _list.ItemContainerStyle = style;
+        Grid.SetRow(_list, 3); panel.Children.Add(_list);
+        _empty.Text = trash ? "휴지통이 비어 있습니다.\n삭제한 메모는 이곳에서 복원할 수 있습니다."
+            : archive ? "보관한 메모가 없습니다.\n메모의 더보기에서 보관할 수 있습니다."
+            : "메모가 없습니다.\n‘새 메모’로 생각을 적어 보세요.";
+        _empty.IsHitTestVisible = false;
+        Grid.SetRow(_empty, 3); panel.Children.Add(_empty); Content = panel;
         _new.Click += (_, _) =>
         {
             try { workspace.Create(); }
@@ -43,11 +69,35 @@ internal sealed class NoteListWindow : Window
         };
         _show.Click += async (_, _) => await ShowSelectedAsync();
         _delete.Click += async (_, _) => await DeleteSelectedAsync();
-        _list.MouseDoubleClick += async (_, _) => await ShowSelectedAsync();
+        _list.MouseDoubleClick += async (_, e) =>
+        {
+            if (e.ChangedButton == MouseButton.Left && e.OriginalSource is DependencyObject source
+                && ItemsControl.ContainerFromElement(_list, source) is ListBoxItem) await ShowSelectedAsync();
+        };
+        _list.KeyDown += async (_, e) =>
+        {
+            if (e.Key != Key.Enter || Keyboard.Modifiers != ModifierKeys.None) return;
+            e.Handled = true; await ShowSelectedAsync();
+        };
         _list.SelectionChanged += (_, _) => UpdateButtons();
         workspace.Changed += OnChanged;
         Closed += (_, _) => workspace.Changed -= OnChanged;
         Refresh();
+    }
+    private static DataTemplate ItemTemplate()
+    {
+        var row = new FrameworkElementFactory(typeof(StackPanel));
+        var title = new FrameworkElementFactory(typeof(TextBlock));
+        title.SetBinding(TextBlock.TextProperty, new Binding(nameof(NoteListItem.Title)));
+        title.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+        title.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
+        row.AppendChild(title);
+        var status = new FrameworkElementFactory(typeof(TextBlock));
+        status.SetBinding(TextBlock.TextProperty, new Binding(nameof(NoteListItem.StatusLabel)));
+        status.SetValue(TextBlock.ForegroundProperty, NoteTheme.MutedInk);
+        status.SetValue(TextBlock.FontSizeProperty, NoteTheme.MetaSize);
+        status.SetValue(MarginProperty, new Thickness(0, 4, 0, 0)); row.AppendChild(status);
+        return new DataTemplate(typeof(NoteListItem)) { VisualTree = row };
     }
     private async Task ShowSelectedAsync()
     {
@@ -78,8 +128,15 @@ internal sealed class NoteListWindow : Window
     {
         Guid? selected = (_list.SelectedItem as NoteListItem)?.Id;
         var items = _trash ? _workspace.TrashItems : _archive ? _workspace.ArchiveItems : _workspace.Items;
-        _list.ItemsSource = items;
-        _list.SelectedItem = items.FirstOrDefault(item => item.Id == selected);
+        if (_items.Select(item => item.Id).SequenceEqual(items.Select(item => item.Id)))
+        {
+            for (int i = 0; i < items.Count; i++) if (_items[i] != items[i]) _items[i] = items[i];
+        }
+        else { _items.Clear(); foreach (var item in items) _items.Add(item); }
+        _list.SelectedItem = _items.FirstOrDefault(item => item.Id == selected);
+        _count.Text = $"메모 {items.Count}개 · Enter로 열기 / 복원";
+        _count.TextWrapping = TextWrapping.Wrap;
+        _empty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         UpdateButtons();
     }
 }
