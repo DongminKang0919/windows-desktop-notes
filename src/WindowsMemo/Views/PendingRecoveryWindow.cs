@@ -17,9 +17,13 @@ internal sealed class PendingRecoveryWindow : Window
         Background = NoteTheme.Butter, Foreground = NoteTheme.Ink, FontFamily = NoteTheme.Font, FontSize = NoteTheme.BodySize
     };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 8) };
-    private readonly Button _refresh = MakeButton("다시 확인");
+    private readonly Button _refresh = MakeButton("처음부터 확인");
+    private readonly Button _next = MakeButton("다음 항목");
     private readonly Button _recover = MakeButton("새 메모로 복구");
     private PendingNotePreview? _preview;
+    private PendingNoteCursor? _cursor;
+    private bool _hasNext;
+    private int _page;
     private int _selectionVersion;
     private bool _closed, _loading, _recovering;
     private static Button MakeButton(string text) => new() { Content = text, MinHeight = NoteTheme.ToolSize, Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 8, 0) };
@@ -44,10 +48,11 @@ internal sealed class PendingRecoveryWindow : Window
         Grid.SetRow(_status, 2); layout.Children.Add(_status);
         Grid.SetRow(_body, 3); layout.Children.Add(_body);
         var actions = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
-        actions.Children.Add(_refresh); actions.Children.Add(_recover);
+        actions.Children.Add(_refresh); actions.Children.Add(_next); actions.Children.Add(_recover);
         var list = MakeButton("메모 목록 열기"); list.Click += (_, _) => showList(); actions.Children.Add(list);
         Grid.SetRow(actions, 4); layout.Children.Add(actions); Content = layout;
         _refresh.Click += async (_, _) => await RefreshAsync();
+        _next.Click += async (_, _) => await LoadPageAsync(restart: false);
         _list.SelectionChanged += async (_, _) => await PreviewAsync();
         _recover.Click += async (_, _) => await RecoverAsync();
         Loaded += async (_, _) => await RefreshAsync();
@@ -55,6 +60,7 @@ internal sealed class PendingRecoveryWindow : Window
         Closed += (_, _) =>
         {
             _closed = true; _selectionVersion++; _preview = null;
+            _cursor?.Dispose(); _cursor = null;
             _body.Document = new FlowDocument(); _list.ItemsSource = null;
             workspace.Changed -= OnWorkspaceChanged;
         };
@@ -65,24 +71,37 @@ internal sealed class PendingRecoveryWindow : Window
     {
         bool available = !_closed && !_loading && !_recovering && !_workspace.IsBusy;
         _refresh.IsEnabled = _list.IsEnabled = available;
+        _next.IsEnabled = available && _hasNext;
         _recover.IsEnabled = available && _preview is not null;
     }
-    internal async Task RefreshAsync()
+    internal Task RefreshAsync() => LoadPageAsync(restart: true);
+    private async Task LoadPageAsync(bool restart)
     {
         if (_closed || _loading || _recovering || _workspace.IsBusy) return;
+        if (!restart && !_hasNext) return;
+        if (restart)
+        {
+            _cursor?.Dispose(); _cursor = _workspace.OpenPendingCursor(); _page = 0;
+        }
+        var cursor = _cursor!;
         _loading = true; _list.SelectedItem = null; _preview = null;
+        _selectionVersion++; _body.Document = new FlowDocument(); _hasNext = false;
         _status.Text = "남아 있는 파일을 확인하는 중…"; UpdateButtons();
         try
         {
-            var scan = await _workspace.ScanPendingAsync();
+            var scan = await Task.Run(cursor.NextPage);
             if (_closed) return;
+            _page++; _hasNext = scan.Limited;
             _list.ItemsSource = scan.Files;
-            _status.Text = scan.Files.Count == 0 ? "복구 후보가 없습니다." : "파일을 선택하면 읽기 전용으로 내용을 표시합니다.";
+            _status.Text = $"{_page}번째 목록 · " + (scan.Files.Count == 0 ? "이 목록에 복구 후보가 없습니다." : "파일을 선택하면 읽기 전용으로 내용을 표시합니다.");
             if (scan.Skipped > 0) _status.Text += " 읽을 수 없는 항목은 그대로 보존했습니다.";
-            if (scan.Limited) _status.Text += " 처음 64개 항목까지 확인했습니다. 나머지 파일도 보존됩니다.";
+            _status.Text += scan.Limited ? " ‘다음 항목’에서 계속 확인하세요." : " 마지막 항목까지 확인했습니다.";
         }
         catch (Exception ex) when (NoteWorkspace.IsNoteError(ex))
-        { if (!_closed) _status.Text = "목록을 읽지 못했습니다. 파일은 보존됩니다. 다시 시도하세요."; }
+        {
+            cursor.Dispose();
+            if (!_closed) _status.Text = "목록을 읽지 못했습니다. 파일은 보존됩니다. ‘처음부터 확인’으로 다시 시도하세요.";
+        }
         finally { _loading = false; UpdateButtons(); }
     }
     private async Task PreviewAsync()

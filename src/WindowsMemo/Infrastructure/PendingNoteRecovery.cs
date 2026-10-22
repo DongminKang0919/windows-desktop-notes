@@ -17,23 +17,8 @@ internal sealed class PendingNoteRecovery(string root)
     private readonly string _root = Path.GetFullPath(root);
     internal PendingNoteScan Scan()
     {
-        FileNoteRepository.CheckRoot(_root);
-        if (!Directory.Exists(_root)) return new([], false, 0);
-        var candidates = Directory.EnumerateFiles(_root, "*.tmp").Take(TemporaryNoteMaintenance.MaxFiles + 1).ToArray();
-        var files = new List<PendingNoteFile>(); int skipped = 0;
-        foreach (string path in candidates.Take(TemporaryNoteMaintenance.MaxFiles))
-        {
-            string name = Path.GetFileName(path);
-            if (name.Length != 36 || !name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
-                || !Guid.TryParseExact(name[..32], "N", out Guid token) || token == Guid.Empty) { skipped++; continue; }
-            try
-            {
-                FileNoteRepository.CheckLink(path);
-                files.Add(new(token, File.GetLastWriteTimeUtc(path)));
-            }
-            catch (Exception ex) when (FileNoteRepository.IsStorageError(ex)) { skipped++; }
-        }
-        return new(files.OrderByDescending(file => file.ModifiedUtc).ToArray(), candidates.Length > TemporaryNoteMaintenance.MaxFiles, skipped);
+        using var cursor = new PendingNoteCursor(_root);
+        return cursor.NextPage();
     }
     internal PendingNotePreview Read(Guid token, string? expectedFingerprint = null)
     {

@@ -166,6 +166,7 @@ internal sealed class NoteWorkspace : IDisposable
         finally { _busy = false; Publish(); }
     }
     internal Task<PendingNoteScan> ScanPendingAsync() => Task.Run(() => new PendingNoteRecovery(_root).Scan());
+    internal PendingNoteCursor OpenPendingCursor() => new(_root);
     internal Task<PendingNotePreview> PreviewPendingAsync(Guid token) => Task.Run(() => new PendingNoteRecovery(_root).Read(token));
     internal async Task<Guid?> RecoverPendingAsync(PendingNotePreview preview)
     {
