@@ -166,6 +166,7 @@ dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll
 | 구분 | 확인 내용 |
 | --- | --- |
 | 0.9.15 로컬 빌드·검사 | Release 경고·오류 0, **150개**(자동 149개 + 실제 비표시 호스트 1개) 통과. 배포 검증 스크립트는 실행 정책 차단으로 로컬 미실행, 정적 구문 검사 통과. [아카이브 검증 기록](docs/results/ARCHIVE-10A2.md) |
+| 0.9.15 Windows CI | 합성 ZIP/설치 검증 **50개**, 기존 자동 **149개**·중단 복구 **10건**·수명 smoke·UI 렌더, 실제 ZIP 생성과 패키지 검사 **6개** 통과. [코드 커밋 CI](https://github.com/DongminKang0919/windows-desktop-notes/actions/runs/39788351101) |
 | 이전 기능 검증 | [업데이트 캐시 보존](docs/results/UPDATE-CACHE-10B2C.md), [목록 안내·화면 렌더](docs/results/LIST-FEEDBACK-07D.md), [폐기 후 비동기 완료](docs/results/DISPOSAL-12C.md), [세션 종료·저장 순서](docs/results/SESSION-END-04I.md). 버전별 로컬 실행 여부와 원격 CI 결과는 각 기록에 보관 |
 | 이전 0.9.8 복구 창 수명·대기 | 100회 반복 후 잔존 창·문서 참조 0개, 5분 대기 중 원본 파일 불변, 대기 후 저장 재시도 통과. [측정 수치와 한계](docs/results/RECOVERY-LIFETIME-12B.md) |
 | 수동 확인이 남은 항목 | 실제 Windows 로그아웃/종료·취소/재시도, Win+D·한글 조합·혼합 DPI·탐색기/절전 복귀·가상 데스크톱·게시자 인증/서명·설치본 업데이트·8/24시간 상주 |
