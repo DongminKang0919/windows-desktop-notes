@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using WindowsMemo.Views;
 using WindowsMemo.Models;
@@ -57,7 +58,7 @@ public sealed class DesktopNoteHost : IDisposable
             throw new InvalidOperationException("Windows 바탕화면 창을 찾지 못했습니다.");
         _scale = GetScale(_parent);
         _bounds = restoredBounds is null
-            ? new PixelBounds(48, 64, (int)(420 * _scale), (int)(480 * _scale))
+            ? new PixelBounds(48, 64, (int)(NoteTheme.Width * _scale), (int)(NoteTheme.Height * _scale))
             : new PixelBounds((int)restoredBounds.X, (int)restoredBounds.Y, (int)(restoredBounds.Width * _scale), (int)(restoredBounds.Height * _scale));
         try
         {
@@ -65,6 +66,7 @@ public sealed class DesktopNoteHost : IDisposable
             _view.MoveRequested += OnMove;
             _view.ResizeRequested += OnResize;
             _view.ReconnectRequested += OnReconnect;
+            _view.AppearanceChanged += OnAppearance;
             _opened = true;
             if (_watchChanges)
             {
@@ -112,6 +114,7 @@ public sealed class DesktopNoteHost : IDisposable
         try
         {
             _source = new HwndSource(parameters);
+            _source.CompositionTarget.BackgroundColor = ((SolidColorBrush)NoteTheme.Paper(_view.Paper)).Color;
             _source.RootVisual = _view;
             ApplyBounds();
             CloseFallback();
@@ -227,8 +230,9 @@ public sealed class DesktopNoteHost : IDisposable
         if (_fallback is not null) return;
         _fallback = new Window
         {
-            Title = "Windows 메모 · 연결 복구", Width = 420, Height = 480,
-            MinWidth = 320, MinHeight = 260, Content = _view,
+            Title = "Windows 메모 · 연결 복구", Width = _bounds.Width / _scale,
+            Height = _view.IsCollapsed ? NoteTheme.CollapsedHeight : _bounds.Height / _scale,
+            MinWidth = 260, MinHeight = NoteTheme.CollapsedHeight, Content = _view,
             WindowStartupLocation = WindowStartupLocation.CenterScreen
         };
         _fallback.Closing += FallbackClosing;
@@ -270,6 +274,12 @@ public sealed class DesktopNoteHost : IDisposable
         _bounds = _bounds with { Width = _bounds.Width + (int)Math.Round(delta.X * scale), Height = _bounds.Height + (int)Math.Round(delta.Y * scale) };
         UpdateBounds();
     }
+    private void OnAppearance(object? sender, EventArgs e)
+    {
+        if (_source is { IsDisposed: false }) _source.CompositionTarget.BackgroundColor = ((SolidColorBrush)NoteTheme.Paper(_view.Paper)).Color;
+        if (_fallback is not null) _fallback.Height = _view.IsCollapsed ? NoteTheme.CollapsedHeight : _bounds.Height / _scale;
+        if (Handle != 0) UpdateBounds();
+    }
     private void UpdateBounds(bool followCursor = false)
     {
         try { FitToDesktop(followCursor); ApplyBounds(); }
@@ -298,15 +308,19 @@ public sealed class DesktopNoteHost : IDisposable
         var area = right > left && bottom > top
             ? new PixelBounds(left, top, right - left, bottom - top)
             : new PixelBounds(origin.X, origin.Y, Math.Max(1, _lastClient.Right), Math.Max(1, _lastClient.Bottom));
-        _bounds = _bounds.FitWithin(area, (int)(320 * _scale), (int)(260 * _scale));
+        _bounds = _bounds.FitWithin(area, (int)(260 * _scale), (int)(200 * _scale));
     }
 
     private void ApplyBounds()
     {
         if (!NativeMethods.IsWindow(_parent) || !OwnsSurface()) throw new Win32Exception("바탕화면 창이 더 이상 유효하지 않습니다.");
         var origin = ParentOrigin();
-        if (!NativeMethods.SetWindowPos(Handle, 0, _bounds.X - origin.X, _bounds.Y - origin.Y, _bounds.Width, _bounds.Height, NativeMethods.SwpNoActivate))
+        int height = _view.IsCollapsed ? (int)(NoteTheme.CollapsedHeight * _scale) : _bounds.Height;
+        if (!NativeMethods.SetWindowPos(Handle, 0, _bounds.X - origin.X, _bounds.Y - origin.Y, _bounds.Width, height, NativeMethods.SwpNoActivate))
             throw new Win32Exception(Marshal.GetLastWin32Error());
+        // A child HWND has no DWM frame; clip it to the same modest paper radius.
+        nint region = NativeMethods.CreateRoundRectRgn(0, 0, _bounds.Width + 1, height + 1, (int)(10 * _scale), (int)(10 * _scale));
+        if (region != 0 && NativeMethods.SetWindowRgn(Handle, region, true) == 0) NativeMethods.DeleteObject(region);
         BoundsChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -342,6 +356,7 @@ public sealed class DesktopNoteHost : IDisposable
         _view.MoveRequested -= OnMove;
         _view.ResizeRequested -= OnResize;
         _view.ReconnectRequested -= OnReconnect;
+        _view.AppearanceChanged -= OnAppearance;
         CloseFallback();
         ReleaseSurface();
         if (_observer is not null)

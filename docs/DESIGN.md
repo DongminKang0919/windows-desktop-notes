@@ -2,6 +2,12 @@
 
 이 문서는 전체 제품의 초기 설계다. 현재 Program, NoteView, DesktopNoteHost 및 NativeMethods로 첫 prototype을 구현했다. 0.3.0에서 NoteRecord, RtfDocumentCodec, AutosaveCoordinator, FileNoteRepository로 메모 하나 저장을 추가했다. 0.4.0에서 NoteWorkspace·NoteSession·NoteSurface·TrayController·NoteListWindow로 여러 메모·트레이·숨김을 구현했다. 0.5.0에서 휴지통 이동·복원·영구 삭제와 스키마 3의 DeletedAtUtc를 추가했다. 0.6.0에서 현재 계정의 로그인 자동 실행 옵션을 추가했다. MVVM과 업데이트는 후속 항목이다. 요구사항은 `REQUIREMENTS.md`, 작업 상태는 `BACKLOG.md`, 실제 구조는 README를 기준으로 한다.
 
+## 0.9.0 포스트잇 UI
+
+메모·목록 UI는 기존 WPF, 트레이는 WinForms를 유지한다. NoteTheme에 종이색·글꼴·크기·여백을 모으고, NoteView에 호버/포커스 도구와 더보기·체크리스트를 구현했다. 새 메모는 320×300 DIP이고 제목은 본문 첫 줄에서 파생한다. 접힘은 52 DIP 높이로 표시하며 펼친 크기를 저장한다. 바탕화면 호스트는 기존 WS_CHILD 부착을 유지하고, 종이색으로 HWND 배경을 채운 뒤 둥근 영역으로 잘라 투명 여백의 검은 가장자리를 피한다.
+
+스키마 4는 Paper/Collapsed/Archived를 암호화 레코드에 추가한다. 이전 스키마 1·2·3은 기본값으로 복원하며 새 형식의 이전 앱 다운그레이드는 지원하지 않는다. 보관은 숨기기·휴지통과 별개로 관리하고 가장 최근 보관은 현재 실행 중 되돌릴 수 있다. 저장 실패는 최신 편집기를 유지한다. [구현·검증과 수동 확인](results/POSTIT-13.md).
+
 ## 기술 및 의존성 방향
 
 - C# + WPF, net10.0-windows 및 .NET SDK 10.0.401을 첫 prototype에 사용한다. SDK는 global.json에 고정했다.

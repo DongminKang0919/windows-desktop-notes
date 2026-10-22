@@ -12,10 +12,11 @@ internal static class Program
     private static int Main(string[] args)
     {
         // Installer hooks must finish before WPF, data loading, or the instance mutex.
-        Velopack.VelopackApp.Build().Run();
+        Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
 
         bool startup = args.Contains("--startup");
-        if (args.Any(a => a is not ("--window" or "--startup")) || (startup && args.Contains("--window")))
+        bool updateTest = args.Length == 2 && args[0] == "--update-test-source";
+        if (!updateTest && (args.Any(a => a is not ("--window" or "--startup")) || (startup && args.Contains("--window"))))
         {
             MessageBox.Show("일반 창 진단 모드는 --window로 실행하세요.", "Windows 메모");
             return 2;
@@ -33,7 +34,8 @@ internal static class Program
             string root = diagnostic ? Path.Combine(FileNoteRepository.DefaultRoot, "Diagnostic") : FileNoteRepository.DefaultRoot;
             using var workspace = new NoteWorkspace(root, (view, bounds) => diagnostic
                 ? new WindowNoteSurface(view, bounds) : new DesktopNoteSurface(view, bounds));
-            using var tray = new TrayController(app, workspace, diagnostic ? null : StartupService.ForCurrentBuild());
+            using var updater = updateTest ? new UpdaterService(new VelopackUpdateBackend(args[1])) : null;
+            using var tray = new TrayController(app, workspace, diagnostic ? null : StartupService.ForCurrentBuild(), updater);
             app.Startup += async (_, _) =>
             {
                 try

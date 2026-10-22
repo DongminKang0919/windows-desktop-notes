@@ -52,7 +52,7 @@ internal static class WorkspaceTests
                 Assert(Wait(workspace.HideAsync(hiddenId)) && surfaces[0].Disposed);
                 Assert(workspace.Items.Single(item => item.Id == hiddenId).Hidden);
                 var record = Load("lifecycle", hiddenId);
-                Assert(record.Hidden && record.SchemaVersion == 3 && record.Bounds.X == -120);
+                Assert(record.Hidden && record.SchemaVersion == 4 && record.Bounds.X == -120);
                 Assert(Wait(workspace.ShowAsync(hiddenId)));
                 var restored = surfaces[2].View!;
                 Assert(Text(restored) == "한글 메모");
@@ -95,12 +95,32 @@ internal static class WorkspaceTests
             surfaces[1].View!.TextEditor.SelectAll(); surfaces[1].View!.InsertPlainText("둘째 수정");
             var repo = new FileNoteRepository(Path.Combine(root, "exit-failure"), ids[0]);
             using (var held = new FileStream(repo.PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-                Assert(!Wait(workspace.FlushAllAsync()));
+                Assert(!Wait(workspace.SaveThenAsync(() => throw new Exception("must not apply after save failure"))));
             Assert(surfaces.All(surface => !surface.Disposed && surface.View!.IsEnabled));
             var second = RtfDocumentCodec.Load(Load("exit-failure", ids[1]).Rtf);
             Assert(new TextRange(second.ContentStart, second.ContentEnd).Text.Trim() == "둘째 수정");
             Assert(Wait(workspace.FlushAllAsync()));
             workspace.Dispose(); Assert(surfaces.All(surface => surface.Disposed));
+        });
+        check("업데이트 저장: 적용 중 편집·생성 차단, 적용 오류 후 편집 복구", () =>
+        {
+            var surfaces = new List<Surface>(); using var workspace = Workspace("update-handoff", surfaces);
+            Wait(workspace.InitializeAsync()); surfaces[0].View!.InsertPlainText("업데이트 전 내용");
+            bool called = false;
+            Assert(Wait(workspace.SaveThenAsync(() =>
+            {
+                called = true;
+                Assert(workspace.IsBusy && !surfaces[0].View!.IsEnabled);
+                workspace.Create(); Assert(workspace.Items.Count == 1);
+                var document = RtfDocumentCodec.Load(Load("update-handoff", workspace.Items.Single().Id).Rtf);
+                Assert(new TextRange(document.ContentStart, document.ContentEnd).Text.Trim() == "업데이트 전 내용");
+            })));
+            Assert(called && !workspace.IsBusy && surfaces[0].View!.IsEnabled);
+            bool failed = false;
+            try { Wait(workspace.SaveThenAsync(() => throw new IOException("update failed"))); }
+            catch (IOException) { failed = true; }
+            Assert(failed && !workspace.IsBusy && surfaces[0].View!.IsEnabled);
+            Assert(Text(surfaces[0].View!) == "업데이트 전 내용");
         });
         check("복원 실패: 손상 메모 보존과 정상 메모 독립 복원", () =>
         {
@@ -131,7 +151,7 @@ internal static class WorkspaceTests
                 Assert(Wait(workspace.TrashAsync(id)) && surfaces[0].Disposed);
                 Assert(workspace.Items.Count == 0 && workspace.TrashItems.Single().Id == id);
                 var record = Load("trash", id);
-                Assert(record.SchemaVersion == 3 && record.Hidden && record.DeletedAtUtc is not null);
+                Assert(record.SchemaVersion == 4 && record.Hidden && record.DeletedAtUtc is not null);
                 Assert(!Wait(workspace.ShowAsync(id)));
             }
             var restarted = new List<Surface>(); using var next = Workspace("trash", restarted);
@@ -244,6 +264,43 @@ internal static class WorkspaceTests
             Assert(!Wait(workspace.FlushAllAsync()));
             ready.SetResult(); Wait(initialization);
             Assert(!workspace.IsBusy && workspace.Items.Count == 1 && surfaces.Count == 1);
+        });
+        check("보관: 색상·접힘·체크리스트 보존, 실행 취소와 재실행 복원", () =>
+        {
+            var surfaces = new List<Surface>(); Guid id;
+            using (var workspace = Workspace("archive", surfaces))
+            {
+                Wait(workspace.InitializeAsync()); id = workspace.Items.Single().Id;
+                var view = surfaces[0].View!; view.InsertPlainText("보관할 생각"); view.ToggleChecklist(); view.ToggleChecklistDone();
+                view.SetPaper("Peach"); view.SetCollapsed(true);
+                Assert(Wait(workspace.ArchiveAsync(id)) && surfaces[0].Disposed);
+                Assert(workspace.Items.Count == 0 && workspace.ArchiveItems.Single().Id == id && workspace.CanUndoArchive);
+                Assert(!Wait(workspace.ShowAsync(id)));
+                Assert(Wait(workspace.UndoArchiveAsync()));
+                var restored = surfaces[^1].View!;
+                Assert(restored.Paper == "Peach" && restored.IsCollapsed && Text(restored) == "☑ 보관할 생각");
+                Assert(Wait(workspace.ArchiveAsync(id)));
+            }
+            var nextSurfaces = new List<Surface>(); using var next = Workspace("archive", nextSurfaces);
+            Wait(next.InitializeAsync()); Assert(next.ArchiveItems.Single().Id == id && nextSurfaces.Count == 0);
+            Assert(Wait(next.UnarchiveAsync(id)) && next.Items.Single().Hidden);
+            Assert(Wait(next.ShowAsync(id)) && nextSurfaces[0].View!.Paper == "Peach");
+        });
+        check("보관 실패: 최신 편집기·색상 보존, 복원 실패 시 보관 상태 유지", () =>
+        {
+            var surfaces = new List<Surface>(); using var workspace = Workspace("archive-failure", surfaces);
+            Wait(workspace.InitializeAsync()); var id = workspace.Items.Single().Id;
+            var view = surfaces[0].View!; view.InsertPlainText("원본"); Assert(Wait(workspace.FlushAllAsync()));
+            view.InsertPlainText(" 최신"); view.SetPaper("Sage");
+            var repo = new FileNoteRepository(Path.Combine(root, "archive-failure"), id);
+            using (var held = new FileStream(repo.PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                Assert(!Wait(workspace.ArchiveAsync(id)));
+            Assert(view.IsEnabled && view.Paper == "Sage" && Text(view).Contains("최신") && workspace.ArchiveItems.Count == 0);
+            Assert(Wait(workspace.ArchiveAsync(id)));
+            using (var held = new FileStream(repo.PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                Assert(!Wait(workspace.UnarchiveAsync(id)));
+            Assert(workspace.ArchiveItems.Single().Id == id);
+            Assert(Wait(workspace.TrashAsync(id)) && workspace.ArchiveItems.Count == 0 && workspace.TrashItems.Count == 1);
         });
         check("숨김 20회: 폐기한 편집기 수집과 창 수 유지", () =>
         {

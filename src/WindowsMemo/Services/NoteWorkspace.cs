@@ -5,9 +5,9 @@ using WindowsMemo.Views;
 
 namespace WindowsMemo.Services;
 
-internal sealed record NoteListItem(Guid Id, bool Hidden, string? Error, bool Trashed = false)
+internal sealed record NoteListItem(Guid Id, bool Hidden, string? Error, bool Trashed = false, bool Archived = false)
 {
-    public string Label => $"메모 {Id.ToString("N")[..8]} · {(Error is not null ? "처리 실패" : Trashed ? "휴지통" : Hidden ? "숨김" : "표시 중")}";
+    public string Label => $"메모 {Id.ToString("N")[..8]} · {(Error is not null ? "처리 실패" : Trashed ? "휴지통" : Archived ? "보관됨" : Hidden ? "숨김" : "표시 중")}";
 }
 
 internal sealed class NoteWorkspace : IDisposable
@@ -17,6 +17,7 @@ internal sealed class NoteWorkspace : IDisposable
         public FileNoteRepository Repository { get; } = repository;
         public bool Hidden { get; set; }
         public bool Trashed { get; set; }
+        public bool Archived { get; set; }
         public string? Error { get; set; }
         public NoteSession? Session { get; set; }
     }
@@ -28,11 +29,15 @@ internal sealed class NoteWorkspace : IDisposable
     public bool IsBusy => _busy || _disposed;
     public event EventHandler? Changed;
     public event EventHandler? ListRequested;
+    public event EventHandler? ArchiveListRequested;
     public event EventHandler<string>? Notice;
     public IReadOnlyList<NoteListItem> Items => List(false);
     public IReadOnlyList<NoteListItem> TrashItems => List(true);
-    private IReadOnlyList<NoteListItem> List(bool trashed) => _entries.Where(pair => pair.Value.Trashed == trashed)
-        .Select(pair => new NoteListItem(pair.Key, pair.Value.Hidden, pair.Value.Error, pair.Value.Trashed)).ToArray();
+    public IReadOnlyList<NoteListItem> ArchiveItems => List(false, true);
+    private Guid? _lastArchived;
+    public bool CanUndoArchive => _lastArchived is { } id && _entries.TryGetValue(id, out var entry) && entry.Archived;
+    private IReadOnlyList<NoteListItem> List(bool trashed, bool archived = false) => _entries.Where(pair => pair.Value.Trashed == trashed && pair.Value.Archived == archived)
+        .Select(pair => new NoteListItem(pair.Key, pair.Value.Hidden, pair.Value.Error, pair.Value.Trashed, pair.Value.Archived)).ToArray();
 
     public NoteWorkspace(string root, Func<NoteView, NoteBounds?, INoteSurface> createSurface)
     { _root = root; _createSurface = createSurface; _dispatcher = Dispatcher.CurrentDispatcher; }
@@ -68,7 +73,8 @@ internal sealed class NoteWorkspace : IDisposable
                     if (loaded.Record is null) throw new System.IO.InvalidDataException("메모 파일이 없어졌습니다.");
                     entry.Hidden = loaded.Record.Hidden;
                     entry.Trashed = loaded.Record.DeletedAtUtc is not null;
-                    if (!entry.Hidden && !entry.Trashed) Open(entry, loaded.Record);
+                    entry.Archived = loaded.Record.Archived;
+                    if (!entry.Hidden && !entry.Trashed && !entry.Archived) Open(entry, loaded.Record);
                     if (loaded.Recovered) Notice?.Invoke(this, "이전 정상 백업에서 메모를 복원했습니다. 최근 변경 일부가 없을 수 있습니다. 원본은 보존됩니다.");
                 }
                 catch (Exception ex) when (IsNoteError(ex)) { entry.Error = "복원하지 못했습니다. 파일은 보존됩니다."; }
@@ -81,11 +87,13 @@ internal sealed class NoteWorkspace : IDisposable
     {
         var offset = (_entries.Count % 10) * 28;
         var session = new NoteSession(entry.Repository, record, (view, bounds) =>
-            _createSurface(view, bounds ?? new NoteBounds(48 + offset, 64 + offset, 420, 480)));
+            _createSurface(view, bounds ?? new NoteBounds(48 + offset, 64 + offset, NoteTheme.Width, NoteTheme.Height)));
         session.View.NewRequested += OnNew;
         session.View.ListRequested += OnList;
         session.View.CloseRequested += OnHide;
         session.View.TrashRequested += OnTrash;
+        session.View.ArchiveRequested += OnArchive;
+        session.View.ArchiveListRequested += OnArchiveList;
         entry.Session = session;
         entry.Hidden = false;
         entry.Error = null;
@@ -110,6 +118,7 @@ internal sealed class NoteWorkspace : IDisposable
         catch (Exception ex) when (IsNoteError(ex)) { Notice?.Invoke(this, "새 메모를 열지 못했습니다. 기존 내용은 유지됩니다."); }
     }
     private void OnList(object? sender, EventArgs e) => ListRequested?.Invoke(this, EventArgs.Empty);
+    private void OnArchiveList(object? sender, EventArgs e) => ArchiveListRequested?.Invoke(this, EventArgs.Empty);
     private async void OnHide(object? sender, EventArgs e)
     {
         var pair = _entries.FirstOrDefault(pair => ReferenceEquals(pair.Value.Session?.View, sender));
@@ -132,7 +141,7 @@ internal sealed class NoteWorkspace : IDisposable
     public async Task<bool> ShowAsync(Guid id)
     {
         if (IsBusy || !_entries.TryGetValue(id, out var entry)) return false;
-        if (entry.Trashed) return false;
+        if (entry.Trashed || entry.Archived) return false;
         if (entry.Session is not null) return true;
         _busy = true; Publish();
         try
@@ -140,6 +149,7 @@ internal sealed class NoteWorkspace : IDisposable
             var loaded = await LoadAsync(entry.Repository);
             if (loaded.Record is null) throw new System.IO.InvalidDataException("메모 파일이 없습니다.");
             if (loaded.Record.DeletedAtUtc is not null) { entry.Trashed = true; entry.Hidden = true; return false; }
+            if (loaded.Record.Archived) { entry.Archived = true; entry.Hidden = true; return false; }
             Open(entry, loaded.Record);
             // Make the visible state durable; a failure keeps the editor available for retry.
             bool saved = await entry.Session!.FlushAsync();
@@ -175,9 +185,9 @@ internal sealed class NoteWorkspace : IDisposable
                 if (loaded.Record is null) return false;
                 var now = DateTimeOffset.UtcNow;
                 await Task.Run(() => entry.Repository.Save(loaded.Record with
-                    { SchemaVersion = 3, Hidden = true, DeletedAtUtc = now, UpdatedAtUtc = now }));
+                    { SchemaVersion = 4, Hidden = true, Archived = false, DeletedAtUtc = now, UpdatedAtUtc = now }));
             }
-            entry.Trashed = true; entry.Hidden = true; entry.Error = null;
+            entry.Trashed = true; entry.Hidden = true; entry.Archived = false; entry.Error = null;
             return true;
         }
         catch (Exception ex) when (IsNoteError(ex)) { entry.Error = "휴지통 이동 실패 · 파일 보존"; return false; }
@@ -192,7 +202,7 @@ internal sealed class NoteWorkspace : IDisposable
             var loaded = await LoadAsync(entry.Repository);
             if (loaded.Record?.DeletedAtUtc is null) return false;
             await Task.Run(() => entry.Repository.Save(loaded.Record with
-                { SchemaVersion = 3, Hidden = true, DeletedAtUtc = null, UpdatedAtUtc = DateTimeOffset.UtcNow }));
+                { SchemaVersion = 4, Hidden = true, DeletedAtUtc = null, UpdatedAtUtc = DateTimeOffset.UtcNow }));
             // Restore to the normal list, hidden; opening is a separate action.
             entry.Trashed = false; entry.Hidden = true; entry.Error = null;
             return true;
@@ -214,7 +224,64 @@ internal sealed class NoteWorkspace : IDisposable
         finally { _busy = false; Publish(); }
     }
 
-    public async Task<bool> FlushAllAsync()
+    private async void OnArchive(object? sender, EventArgs e)
+    {
+        var pair = _entries.FirstOrDefault(pair => ReferenceEquals(pair.Value.Session?.View, sender));
+        if (pair.Value is not null && !await ArchiveAsync(pair.Key))
+            Notice?.Invoke(this, "저장하지 못해 보관을 취소했습니다. 최신 내용을 유지하고 있으니 다시 시도하세요.");
+    }
+    public async Task<bool> ArchiveAsync(Guid id)
+    {
+        if (IsBusy || !_entries.TryGetValue(id, out var entry) || entry.Trashed || entry.Archived) return false;
+        _busy = true; Publish();
+        try
+        {
+            if (entry.Session is not null)
+            {
+                if (!await entry.Session.ArchiveAsync()) return false;
+                entry.Session = null;
+            }
+            else
+            {
+                var loaded = await LoadAsync(entry.Repository);
+                if (loaded.Record is null) return false;
+                await Task.Run(() => entry.Repository.Save(loaded.Record with
+                    { SchemaVersion = 4, Hidden = true, Archived = true, UpdatedAtUtc = DateTimeOffset.UtcNow }));
+            }
+            entry.Archived = true; entry.Hidden = true; entry.Error = null; _lastArchived = id;
+            return true;
+        }
+        catch (Exception ex) when (IsNoteError(ex)) { entry.Error = "보관 실패 · 내용 유지"; return false; }
+        finally { _busy = false; Publish(); }
+    }
+    public async Task<bool> UnarchiveAsync(Guid id)
+    {
+        if (IsBusy || !_entries.TryGetValue(id, out var entry) || !entry.Archived || entry.Trashed) return false;
+        _busy = true; Publish();
+        try
+        {
+            var loaded = await LoadAsync(entry.Repository);
+            if (loaded.Record is null) return false;
+            await Task.Run(() => entry.Repository.Save(loaded.Record with
+                { SchemaVersion = 4, Archived = false, Hidden = true, UpdatedAtUtc = DateTimeOffset.UtcNow }));
+            entry.Archived = false; entry.Hidden = true; entry.Error = null;
+            return true;
+        }
+        catch (Exception ex) when (IsNoteError(ex)) { entry.Error = "보관 복원 실패 · 파일 유지"; return false; }
+        finally { _busy = false; Publish(); }
+    }
+    public async Task<bool> UndoArchiveAsync()
+    {
+        if (!CanUndoArchive || _lastArchived is not { } id) return false;
+        if (!await UnarchiveAsync(id)) return false;
+        return await ShowAsync(id);
+    }
+
+    public Task<bool> FlushAllAsync() => SaveThenAsync(null);
+
+    // Keep editing and workspace mutations blocked until the update/exit handoff finishes.
+    public Task<bool> SaveThenAsync(Action? afterSave) => FlushCoreAsync(afterSave);
+    private async Task<bool> FlushCoreAsync(Action? afterSave)
     {
         if (IsBusy) return false;
         _busy = true; Publish();
@@ -225,6 +292,7 @@ internal sealed class NoteWorkspace : IDisposable
             bool success = true;
             // Try every visible note; one failure must not discard or skip another note.
             foreach (var session in sessions) if (!await session.FlushAsync()) success = false;
+            if (success) afterSave?.Invoke();
             return success;
         }
         finally
@@ -239,6 +307,6 @@ internal sealed class NoteWorkspace : IDisposable
         _disposed = true;
         foreach (var entry in _entries.Values) entry.Session?.Dispose();
         _entries.Clear();
-        Changed = null; ListRequested = null; Notice = null;
+        Changed = null; ListRequested = null; ArchiveListRequested = null; Notice = null;
     }
 }
