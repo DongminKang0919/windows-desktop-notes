@@ -8,29 +8,31 @@ internal sealed class NoteListWindow : Window
 {
     private readonly NoteWorkspace _workspace;
     private readonly bool _trash;
+    private readonly bool _archive;
     private readonly ListBox _list = new() { DisplayMemberPath = nameof(NoteListItem.Label) };
     private readonly Button _new = Button("새 메모");
     private readonly Button _show;
     private readonly Button _delete;
     private static Button Button(string text) => new() { Content = text, Padding = new Thickness(12,6,12,6), Margin = new Thickness(4) };
-    public NoteListWindow(NoteWorkspace workspace, bool trash = false)
+    public NoteListWindow(NoteWorkspace workspace, bool trash = false, bool archive = false)
     {
-        _workspace = workspace; _trash = trash;
-        _show = Button(trash ? "선택한 메모 복원" : "선택한 메모 열기");
+        _workspace = workspace; _trash = trash; _archive = archive;
+        _show = Button(trash || archive ? "선택한 메모 복원" : "선택한 메모 열기");
         _delete = Button(trash ? "영구 삭제" : "휴지통으로 이동");
-        Title = trash ? "Windows 메모 · 휴지통" : "Windows 메모 · 메모 목록";
+        Title = trash ? "Windows 메모 · 휴지통" : archive ? "Windows 메모 · 보관함" : "Windows 메모 · 메모 목록";
         Width = 500; Height = 440; MinWidth = 350; MinHeight = 280;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         var panel = new DockPanel { Margin = new Thickness(16) };
         var help = new TextBlock
         {
             Text = trash ? "복원하면 숨김 상태로 메모 목록에 돌아갑니다. 영구 삭제는 되돌릴 수 없습니다. 자동으로 비우지 않습니다."
-                : "닫은 메모는 삭제되지 않습니다. 선택해 다시 열 수 있습니다.",
+                : archive ? "보관한 메모입니다. 복원하면 메모 목록으로 돌아갑니다."
+                : "숨긴 메모는 다시 열 수 있습니다. 보관한 메모는 트레이의 보관함에 있습니다.",
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,0,0,12)
         };
         DockPanel.SetDock(help, Dock.Top); panel.Children.Add(help);
         var buttons = new WrapPanel();
-        if (!trash) buttons.Children.Add(_new);
+        if (!trash && !archive) buttons.Children.Add(_new);
         buttons.Children.Add(_show); buttons.Children.Add(_delete);
         DockPanel.SetDock(buttons, Dock.Bottom); panel.Children.Add(buttons);
         panel.Children.Add(_list); Content = panel;
@@ -50,7 +52,7 @@ internal sealed class NoteListWindow : Window
     private async Task ShowSelectedAsync()
     {
         if (_workspace.IsBusy || _list.SelectedItem is not NoteListItem item) return;
-        bool success = _trash ? await _workspace.RestoreAsync(item.Id) : await _workspace.ShowAsync(item.Id);
+        bool success = _trash ? await _workspace.RestoreAsync(item.Id) : _archive ? await _workspace.UnarchiveAsync(item.Id) : await _workspace.ShowAsync(item.Id);
         if (!success) MessageBox.Show("메모를 복원하지 못했습니다. 남아 있는 파일은 보존됩니다.", "메모 복원 실패");
     }
     private async Task DeleteSelectedAsync()
@@ -75,7 +77,7 @@ internal sealed class NoteListWindow : Window
     private void Refresh()
     {
         Guid? selected = (_list.SelectedItem as NoteListItem)?.Id;
-        var items = _trash ? _workspace.TrashItems : _workspace.Items;
+        var items = _trash ? _workspace.TrashItems : _archive ? _workspace.ArchiveItems : _workspace.Items;
         _list.ItemsSource = items;
         _list.SelectedItem = items.FirstOrDefault(item => item.Id == selected);
         UpdateButtons();

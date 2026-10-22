@@ -178,8 +178,11 @@ public sealed class FileNoteRepository
 
     public static void Validate(NoteRecord record)
     {
-        if (record.SchemaVersion > 3) throw new UnsupportedNoteSchemaException();
-        if (record.SchemaVersion is not (1 or 2 or 3) || (record.SchemaVersion == 1 && record.Hidden)
+        if (record.SchemaVersion > 4) throw new UnsupportedNoteSchemaException();
+        if (record.SchemaVersion is not (1 or 2 or 3 or 4) || (record.SchemaVersion == 1 && record.Hidden)
+            || !WindowsMemo.Views.NoteTheme.IsPaper(record.Paper)
+            || (record.SchemaVersion < 4 && (record.Paper != "Butter" || record.Collapsed || record.Archived))
+            || (record.Archived && (!record.Hidden || record.DeletedAtUtc is not null))
             || (record.SchemaVersion < 3 && record.DeletedAtUtc is not null)
             || (record.DeletedAtUtc is { } deleted && (!record.Hidden || deleted < record.CreatedAtUtc || deleted > record.UpdatedAtUtc)) || record.Id == Guid.Empty || record.Rtf is not { Length: > 0 and <= 2 * 1024 * 1024 }
             || record.Bounds is not { } b || !double.IsFinite(b.X) || !double.IsFinite(b.Y)

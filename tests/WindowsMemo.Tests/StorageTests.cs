@@ -136,11 +136,31 @@ internal static class StorageTests
         {
             var repo = Repository("future-schema"); repo.Save(Record("old-backup")); repo.Save(Record("current"));
             byte[] backup = File.ReadAllBytes(repo.BackupPath);
-            byte[] cipher = ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(Record("future") with { SchemaVersion = 4 }), null, DataProtectionScope.CurrentUser);
+            byte[] cipher = ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(Record("future") with { SchemaVersion = 5 }), null, DataProtectionScope.CurrentUser);
             File.WriteAllText(repo.PrimaryPath, JsonSerializer.Serialize(new { Version = 1, Protection = "DPAPI-CurrentUser", Ciphertext = cipher }));
             byte[] primary = File.ReadAllBytes(repo.PrimaryPath);
             Throws(() => repo.Load(Validate, out _));
             Assert(File.ReadAllBytes(repo.PrimaryPath).SequenceEqual(primary) && File.ReadAllBytes(repo.BackupPath).SequenceEqual(backup));
+        });
+        check("저장 형식 4: 기존 필드 기본값과 새 상태 검증", () =>
+        {
+            var repo = Repository("paper-schema"); var record = Record("종이색 보존");
+            repo.Save(record with { SchemaVersion = 4, Paper = "Sage", Collapsed = true, Archived = true, Hidden = true });
+            var restored = repo.Load(Validate, out _)!;
+            Assert(restored.Paper == "Sage" && restored.Collapsed && restored.Archived && restored.Hidden);
+            Throws(() => repo.Save(restored with { Paper = "Unknown" }));
+            Throws(() => repo.Save(restored with { Hidden = false }));
+            Throws(() => repo.Save(restored with { DeletedAtUtc = restored.UpdatedAtUtc }));
+            Throws(() => repo.Save(restored with { SchemaVersion = 3 }));
+            foreach (int schema in new[] { 1, 2, 3 })
+            {
+                var node = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(record with { SchemaVersion = schema }))!;
+                foreach (string field in new[] { "Paper", "Collapsed", "Archived" }) node.AsObject().Remove(field);
+                byte[] cipher = ProtectedData.Protect(Encoding.UTF8.GetBytes(node.ToJsonString()), null, DataProtectionScope.CurrentUser);
+                File.WriteAllText(repo.PrimaryPath, JsonSerializer.Serialize(new { Version = 1, Protection = "DPAPI-CurrentUser", Ciphertext = cipher }));
+                restored = repo.Load(Validate, out bool recovered)!;
+                Assert(!recovered && restored.Paper == "Butter" && !restored.Collapsed && !restored.Archived);
+            }
         });
         check("삭제 상태: 이전 스키마·표시 상태·잘못된 시각 거부", () =>
         {

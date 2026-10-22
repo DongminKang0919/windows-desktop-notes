@@ -20,6 +20,10 @@ internal sealed class TrayController : IDisposable
     private readonly Forms.ToolStripMenuItem _new = new("새 메모");
     private readonly Forms.ToolStripMenuItem _list = new("메모 목록");
     private readonly Forms.ToolStripMenuItem _trash = new("휴지통");
+    private readonly Forms.ToolStripMenuItem _archive = new("보관함");
+    private readonly Forms.ToolStripMenuItem _undoArchive = new("보관 실행 취소");
+    private NoteListWindow? _archiveWindow;
+    private bool _couldUndo;
     private NoteListWindow? _trashWindow;
     private readonly Forms.ToolStripMenuItem _exit = new("모든 메모 저장 후 종료");
     private NoteListWindow? _window;
@@ -30,16 +34,19 @@ internal sealed class TrayController : IDisposable
         _app = app; _workspace = workspace; _startupService = startupService; _updater = updater;
         try
         {
-            _menu.Items.AddRange([_new, _list, _trash, new Forms.ToolStripSeparator(), _startup, new Forms.ToolStripSeparator(), _exit]);
+            _menu.Items.AddRange([_new, _list, _archive, _undoArchive, _trash, new Forms.ToolStripSeparator(), _startup, new Forms.ToolStripSeparator(), _exit]);
             if (_updater is not null) _menu.Items.Insert(_menu.Items.Count - 1, _update);
             _tray.Icon = _icon; _tray.Text = $"Windows 메모 · {typeof(TrayController).Assembly.GetName().Version?.ToString(3)} prototype"; _tray.ContextMenuStrip = _menu;
             _new.Click += OnNew; _list.Click += OnList; _trash.Click += OnTrash; _exit.Click += OnExit;
             _tray.DoubleClick += OnList;
             _startup.Click += OnStartup;
             _update.Click += OnUpdate;
+            _archive.Click += OnArchive;
+            _undoArchive.Click += OnUndoArchive;
             _menu.Opening += OnMenuOpening;
             RefreshStartup();
             workspace.Changed += OnChanged; workspace.ListRequested += OnList; workspace.Notice += OnNotice;
+            workspace.ArchiveListRequested += OnArchive;
             _tray.Visible = true;
         }
         catch { Dispose(); throw; }
@@ -75,7 +82,23 @@ internal sealed class TrayController : IDisposable
         _trashWindow.Activate();
     });
     private void OnMenuOpening(object? sender, System.ComponentModel.CancelEventArgs e)
-    { RefreshStartup(); RefreshUpdate(); }
+    { RefreshStartup(); RefreshUpdate(); _undoArchive.Enabled = _workspace.CanUndoArchive && !_workspace.IsBusy; }
+    private void OnArchive(object? sender, EventArgs e) => Dispatch(() =>
+    {
+        if (_archiveWindow is null)
+        {
+            _archiveWindow = new NoteListWindow(_workspace, archive: true);
+            _archiveWindow.Closed += (_, _) => _archiveWindow = null;
+            _archiveWindow.Show();
+        }
+        if (_archiveWindow.WindowState == WindowState.Minimized) _archiveWindow.WindowState = WindowState.Normal;
+        _archiveWindow.Activate();
+    });
+    private void OnUndoArchive(object? sender, EventArgs e) => Dispatch(async () =>
+    {
+        if (_workspace.IsBusy || !_workspace.CanUndoArchive) return;
+        if (!await _workspace.UndoArchiveAsync()) OnNotice(this, "보관을 되돌리지 못했습니다. 보관함과 메모 목록에서 다시 시도하세요.");
+    });
     private void RefreshUpdate()
     {
         _update.Enabled = _updater is not null && !_updater.IsBusy && !_workspace.IsBusy && !_exiting;
@@ -149,7 +172,13 @@ internal sealed class TrayController : IDisposable
         finally { RefreshStartup(); }
     });
     private void OnChanged(object? sender, EventArgs e)
-    { _new.Enabled = !_workspace.IsBusy; _exit.Enabled = !_workspace.IsBusy; RefreshUpdate(); }
+    {
+        _new.Enabled = !_workspace.IsBusy; _exit.Enabled = !_workspace.IsBusy; RefreshUpdate();
+        _undoArchive.Enabled = _workspace.CanUndoArchive && !_workspace.IsBusy;
+        if (!_workspace.IsBusy && !_couldUndo && _workspace.CanUndoArchive)
+            _tray.ShowBalloonTip(4000, "메모를 보관했습니다", "트레이의 ‘보관 실행 취소’ 또는 ‘보관함’에서 복원할 수 있습니다.", Forms.ToolTipIcon.Info);
+        if (!_workspace.IsBusy) _couldUndo = _workspace.CanUndoArchive;
+    }
     private void OnNotice(object? sender, string text) => MessageBox.Show(text, "Windows 메모", MessageBoxButton.OK, MessageBoxImage.Information);
     private void OnExit(object? sender, EventArgs e) => Dispatch(async () => await ExitAsync());
     public async Task ExitAsync()
@@ -168,13 +197,16 @@ internal sealed class TrayController : IDisposable
         if (_disposed) return;
         _disposed = true;
         _workspace.Changed -= OnChanged; _workspace.ListRequested -= OnList; _workspace.Notice -= OnNotice;
+        _workspace.ArchiveListRequested -= OnArchive;
         _new.Click -= OnNew; _list.Click -= OnList; _trash.Click -= OnTrash; _exit.Click -= OnExit; _tray.DoubleClick -= OnList;
         _startup.Click -= OnStartup; _menu.Opening -= OnMenuOpening;
         _update.Click -= OnUpdate;
+        _archive.Click -= OnArchive; _undoArchive.Click -= OnUndoArchive;
         _update.Dispose();
         _tray.Visible = false; _tray.ContextMenuStrip = null;
         _tray.Dispose(); _menu.Dispose(); _icon.Dispose();
         _window?.Close(); _window = null;
         _trashWindow?.Close(); _trashWindow = null;
+        _archiveWindow?.Close(); _archiveWindow = null;
     }
 }

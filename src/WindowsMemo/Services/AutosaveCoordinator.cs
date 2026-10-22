@@ -13,16 +13,19 @@ public sealed class AutosaveCoordinator : IDisposable
     private readonly DateTimeOffset _created;
     private readonly Func<bool> _hidden;
     private readonly Func<DateTimeOffset?> _deleted;
+    private readonly Func<bool> _archived;
     private readonly DispatcherTimer _timer;
     private Task<bool>? _saving;
     private long _version, _savedVersion;
     private DateTimeOffset _firstChange, _lastChange, _retryAfter;
     private bool _disposed;
 
-    public AutosaveCoordinator(NoteView view, FileNoteRepository repository, Func<NoteBounds> bounds, DateTimeOffset created, Func<bool>? hidden = null, Func<DateTimeOffset?>? deleted = null)
+    public AutosaveCoordinator(NoteView view, FileNoteRepository repository, Func<NoteBounds> bounds, DateTimeOffset created, Func<bool>? hidden = null, Func<DateTimeOffset?>? deleted = null, Func<bool>? archived = null)
     {
         _view = view; _repository = repository; _bounds = bounds; _created = created; _hidden = hidden ?? (() => false); _deleted = deleted ?? (() => null);
+        _archived = archived ?? (() => false);
         _view.DocumentChanged += OnChange;
+        _view.AppearanceChanged += OnChange;
         _view.SaveRequested += OnSave;
         _timer = new DispatcherTimer(DispatcherPriority.Background, view.Dispatcher) { Interval = TimeSpan.FromMilliseconds(250) };
         _timer.Tick += OnTick;
@@ -75,8 +78,8 @@ public sealed class AutosaveCoordinator : IDisposable
         try
         {
             _view.SetSaveStatus("저장 중…", false);
-            var record = new NoteRecord(3, _repository.Id, RtfDocumentCodec.Save(_view.TextEditor.Document),
-                _bounds(), _created, DateTimeOffset.UtcNow, _hidden(), _deleted());
+            var record = new NoteRecord(4, _repository.Id, RtfDocumentCodec.Save(_view.TextEditor.Document),
+                _bounds(), _created, DateTimeOffset.UtcNow, _hidden(), _deleted(), _view.Paper, _view.IsCollapsed, _archived());
             await Task.Run(() => _repository.Save(record));
             _savedVersion = version;
             _retryAfter = default;
@@ -96,6 +99,7 @@ public sealed class AutosaveCoordinator : IDisposable
         _disposed = true;
         _timer.Stop(); _timer.Tick -= OnTick;
         _view.DocumentChanged -= OnChange;
+        _view.AppearanceChanged -= OnChange;
         _view.SaveRequested -= OnSave;
     }
 }

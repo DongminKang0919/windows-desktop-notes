@@ -11,6 +11,7 @@ internal sealed class NoteSession : IDisposable
     private readonly AutosaveCoordinator _saves;
     private DateTimeOffset? _deleted;
     private bool _hidden, _disposed, _transitioning;
+    private bool _archived;
     public NoteView View { get; }
     public Guid Id { get; }
 
@@ -22,9 +23,12 @@ internal sealed class NoteSession : IDisposable
         try
         {
             if (record is not null) View.TextEditor.Document = RtfDocumentCodec.Load(record.Rtf);
+            View.RefreshTitle();
+            View.SetPaper(record?.Paper ?? "Butter");
+            View.SetCollapsed(record?.Collapsed ?? false);
             _surface = createSurface(View, record?.Bounds);
             _saves = new AutosaveCoordinator(View, repository, _surface.CaptureBounds,
-                record?.CreatedAtUtc ?? DateTimeOffset.UtcNow, () => _hidden, () => _deleted);
+                record?.CreatedAtUtc ?? DateTimeOffset.UtcNow, () => _hidden, () => _deleted, () => _archived);
             _surface.BoundsChanged += OnBounds;
             // New/visible/fitted state must be persisted even when only the visibility changed.
             _saves.MarkChanged();
@@ -37,12 +41,14 @@ internal sealed class NoteSession : IDisposable
 
     public Task<bool> HideAsync() => CloseAsync(false);
     public Task<bool> TrashAsync() => CloseAsync(true);
-    private async Task<bool> CloseAsync(bool trash)
+    public Task<bool> ArchiveAsync() => CloseAsync(false, true);
+    private async Task<bool> CloseAsync(bool trash, bool archive = false)
     {
         if (_disposed || _transitioning) return false;
         _transitioning = true;
         View.IsEnabled = false;
         _hidden = true;
+        _archived = archive;
         _deleted = trash ? DateTimeOffset.UtcNow : null;
         _saves.MarkChanged();
         try
@@ -50,6 +56,7 @@ internal sealed class NoteSession : IDisposable
             if (await _saves.FlushAsync()) { Dispose(); return true; }
             // Keep the newest editor and surface when the hidden snapshot did not reach disk.
             _hidden = false;
+            _archived = false;
             _deleted = null;
             _saves.MarkChanged();
             View.SetSaveStatus("저장하지 못했습니다. 내용을 유지하고 있습니다. 다시 시도하세요.", true);
