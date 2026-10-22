@@ -41,6 +41,16 @@ jobs:
         run: dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll
       - name: Run isolated crash recovery probe
         run: dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll --crash-probe
+      - name: Smoke test recovery window lifetime
+        run: dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll --recovery-probe --cycles 5 --idle-seconds 1
+      - name: Upload recovery lifetime metrics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: recovery-lifetime-metrics
+          path: tests/WindowsMemo.Tests/bin/Release/net10.0-windows/recovery-probe/*/metrics.jsonl
+          retention-days: 14
+          if-no-files-found: warn
       - name: Render sample note controls
         run: dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll --render-ui-only
       - name: Upload sample UI renders

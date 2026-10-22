@@ -140,19 +140,21 @@ docs/               설계·작업 목록·검증 기록
 dotnet build WindowsMemo.slnx --configuration Release -p:RestoreLockedMode=true
 dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll
 dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll --crash-probe
+
+# 복구 창 100회 반복 + 저장 실패 상태 5분 대기 (격리 데이터)
+dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll --recovery-probe --cycles 100 --idle-seconds 300
 ```
 
 로그인된 Windows 세션에서는 `--shell-probe`로 실제 바탕화면의 비표시 시험 창 생성·해제를 추가 검증할 수 있습니다. 시험 데이터는 빌드 출력 폴더의 GUID별 디렉터리에 저장하며 사용자 메모 폴더를 사용하지 않습니다.
 
-[Windows CI](.github/workflows/windows-ci.yml)는 PR·main 푸시 시 빌드, 자동 검사, 격리된 자식 프로세스 중단·복구 시험을 수행하고 시험용 UI 렌더를 artifact로 보관합니다.
+[Windows CI](.github/workflows/windows-ci.yml)는 PR·main 푸시 시 빌드, 자동 검사, 격리된 자식 프로세스 중단·복구 시험, 짧은 복구 창 수명 시험을 수행합니다. 시험용 UI 렌더와 수명 측정 JSONL을 artifact로 보관합니다. 수명 시험은 비표시 창으로 실행하며 실제 화면 입력이나 장시간 상주 시험을 대신하지 않습니다.
 
 ### 현재 확인 범위
 
 | 구분 | 확인 내용 |
 | --- | --- |
 | 0.9.8 로컬 빌드·검사 | Release 경고·오류 0, **118개**(자동 117개 + 실제 비표시 호스트 1개) 및 강제 종료 복구 **10건** 통과. [실패 안내·재시도 검증](docs/results/FEEDBACK-04G.md) |
-| 이전 0.9.5 근거 | CI 96개·강제 종료 복구 8건 통과. 당시 로컬 실행 정책 차단은 [복구 검증 기록](docs/results/PENDING-04D.md)에 구분 |
-| 이전 0.9.4 근거 | 로컬 87개 검사와 강제 종료 복구 8건 통과. [임시 파일 정리 검증](docs/results/TEMPORARY-04C.md) |
+| 복구 창 수명·대기 | 100회 반복 후 잔존 창·문서 참조 0개, 5분 대기 중 원본 파일 불변, 대기 후 저장 재시도 통과. [측정 수치와 한계](docs/results/RECOVERY-LIFETIME-12B.md) |
 | 수동 확인이 남은 항목 | 실제 Win+D·한글 조합·혼합 DPI·탐색기/절전 복귀·가상 데스크톱·설치본 업데이트·8/24시간 상주 |
 
 자동 검사와 비표시 창 검증은 실제 화면·입력·장시간 안정성 시험을 대신하지 않습니다. 이전 성능·수명 측정과 한계는 [중간 점검 기록](docs/results/REVIEW-14.md)에서 확인할 수 있습니다.
