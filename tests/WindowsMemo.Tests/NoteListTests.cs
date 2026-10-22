@@ -134,8 +134,9 @@ internal static class NoteListTests
                                 Require(Action(window, mode == "notes" ? "새 메모" : "선택한 메모 복원").ActualHeight >= 28);
                                 NoteDesignTests.Save(layout, 432, 376, scale, Path.Combine(images, $"{mode}-list-{(int)(scale * 100)}.png"));
                             }
-                            layout.Measure(new Size(292, 296)); layout.Arrange(new Rect(0, 0, 292, 296)); layout.UpdateLayout();
-                            Require(List(window).ActualHeight > 60);
+                            // The root's 22-DIP margin is included in its available size.
+                            layout.Measure(new Size(336, 340)); layout.Arrange(new Rect(0, 0, 336, 340)); layout.UpdateLayout();
+                            Require(List(window).ActualHeight >= 52, $"Narrow {mode}: root {layout.ActualWidth}x{layout.ActualHeight}, list height {List(window).ActualHeight}.");
                         }
                         finally { window.Close(); }
                     }
@@ -179,5 +180,5 @@ internal static class NoteListTests
         task.ContinueWith(_ => dispatcher.BeginInvoke(new Action(() => frame.Continue = false)));
         if (!task.IsCompleted) Dispatcher.PushFrame(frame); task.GetAwaiter().GetResult();
     }
-    private static void Require(bool condition) { if (!condition) throw new InvalidOperationException("Note list assertion failed."); }
+    private static void Require(bool condition, string? message = null) { if (!condition) throw new InvalidOperationException(message ?? "Note list assertion failed."); }
 }
