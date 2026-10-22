@@ -9,7 +9,6 @@ internal sealed record NoteListItem(Guid Id, bool Hidden, string? Error, bool Tr
 {
     public string Label => $"메모 {Id.ToString("N")[..8]} · {(Error is not null ? "처리 실패" : Trashed ? "휴지통" : Archived ? "보관됨" : Hidden ? "숨김" : "표시 중")}";
 }
-internal sealed record PendingRecoveryResult(Guid Id, bool AlreadyRecovered);
 
 internal sealed class NoteWorkspace : IDisposable
 {
@@ -168,32 +167,36 @@ internal sealed class NoteWorkspace : IDisposable
     internal Task<PendingNoteScan> ScanPendingAsync() => Task.Run(() => new PendingNoteRecovery(_root).Scan());
     internal PendingNoteCursor OpenPendingCursor() => new(_root);
     internal Task<PendingNotePreview> PreviewPendingAsync(Guid token) => Task.Run(() => new PendingNoteRecovery(_root).Read(token));
-    internal async Task<PendingRecoveryResult?> RecoverPendingAsync(PendingNotePreview preview)
+    internal async Task<PendingRecoveryResult> RecoverPendingAsync(PendingNotePreview preview)
     {
-        if (IsBusy) return null;
+        if (IsBusy) return PendingRecoveryResult.Failed(PendingRecoveryStatus.Busy);
         _busy = true; Publish();
+        var failure = PendingRecoveryStatus.SourceUnavailable;
         try
         {
             // Re-read the source: the preview's mutable record is never trusted as save input.
             var verified = await Task.Run(() => new PendingNoteRecovery(_root).Read(preview.Token, preview.Fingerprint));
             RtfDocumentCodec.Load(verified.Record.Rtf);
-            if (_disposed) return null;
+            if (_disposed) return PendingRecoveryResult.Failed(PendingRecoveryStatus.Busy);
             Guid id = PendingNoteRecovery.CopyId(verified.Token, verified.Fingerprint);
-            if (id == verified.Record.Id) return null;
+            if (id == verified.Record.Id) return PendingRecoveryResult.Failed(PendingRecoveryStatus.ExistingCopyUnavailable);
             if (_entries.TryGetValue(id, out var existing))
             {
-                if (existing.Error is not null) return null;
+                failure = PendingRecoveryStatus.ExistingCopyUnavailable;
                 if (existing.Session is null)
                 {
                     var loaded = await LoadAsync(existing.Repository);
-                    if (loaded.Record is null) return null;
+                    if (_disposed) return PendingRecoveryResult.Failed(PendingRecoveryStatus.Busy);
+                    if (loaded.Record is null) return PendingRecoveryResult.Failed(failure);
                     existing.Hidden = loaded.Record.Hidden;
                     existing.Archived = loaded.Record.Archived;
                     existing.Trashed = loaded.Record.DeletedAtUtc is not null;
+                    existing.Error = null;
                 }
-                return new(id, AlreadyRecovered: true);
+                return new(id, PendingRecoveryStatus.AlreadyRecovered);
             }
-            if (_entries.Count >= 1000) return null;
+            if (_entries.Count >= 1000) return PendingRecoveryResult.Failed(PendingRecoveryStatus.LimitReached);
+            failure = PendingRecoveryStatus.SaveFailed;
             var repository = new FileNoteRepository(_root, id);
             var now = DateTimeOffset.UtcNow;
             var copy = verified.Record with { SchemaVersion = 4, Id = id, CreatedAtUtc = now, UpdatedAtUtc = now,
@@ -204,9 +207,13 @@ internal sealed class NoteWorkspace : IDisposable
             {
                 _entries.Add(id, new Entry(repository) { Hidden = true });
             }
-            return new(id, AlreadyRecovered: false);
+            return new(id, PendingRecoveryStatus.Created);
         }
-        catch (Exception ex) when (IsNoteError(ex)) { return null; }
+        catch (Exception ex) when (IsNoteError(ex))
+        {
+            return failure == PendingRecoveryStatus.SourceUnavailable
+                ? PendingRecoveryResult.SourceFailure(ex) : PendingRecoveryResult.Failed(failure);
+        }
         finally { _busy = false; Publish(); }
     }
     private async void OnTrash(object? sender, EventArgs e)

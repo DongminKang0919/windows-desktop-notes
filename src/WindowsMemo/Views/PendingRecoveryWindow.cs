@@ -26,6 +26,7 @@ internal sealed class PendingRecoveryWindow : Window
     private int _page;
     private int _selectionVersion;
     private bool _closed, _loading, _recovering;
+    private bool _retry;
     private static Button MakeButton(string text) => new() { Content = text, MinHeight = NoteTheme.ToolSize, Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 8, 0) };
 
     internal PendingRecoveryWindow(NoteWorkspace workspace, Action showList)
@@ -73,6 +74,7 @@ internal sealed class PendingRecoveryWindow : Window
         _refresh.IsEnabled = _list.IsEnabled = available;
         _next.IsEnabled = available && _hasNext;
         _recover.IsEnabled = available && _preview is not null;
+        _recover.Content = _retry ? "복구 다시 시도" : "새 메모로 복구";
     }
     internal Task RefreshAsync() => LoadPageAsync(restart: true);
     private async Task LoadPageAsync(bool restart)
@@ -85,7 +87,7 @@ internal sealed class PendingRecoveryWindow : Window
         }
         var cursor = _cursor!;
         _loading = true; _list.SelectedItem = null; _preview = null;
-        _selectionVersion++; _body.Document = new FlowDocument(); _hasNext = false;
+        _selectionVersion++; _body.Document = new FlowDocument(); _hasNext = false; _retry = false;
         _status.Text = "남아 있는 파일을 확인하는 중…"; UpdateButtons();
         try
         {
@@ -106,7 +108,7 @@ internal sealed class PendingRecoveryWindow : Window
     }
     private async Task PreviewAsync()
     {
-        int version = ++_selectionVersion; _preview = null; _body.Document = new FlowDocument(); UpdateButtons();
+        int version = ++_selectionVersion; _preview = null; _retry = false; _body.Document = new FlowDocument(); UpdateButtons();
         if (_closed || _list.SelectedItem is not PendingNoteFile file) return;
         _status.Text = "내용을 읽는 중…";
         try
@@ -119,7 +121,13 @@ internal sealed class PendingRecoveryWindow : Window
             _status.Text = $"저장 시각 {preview.Record.UpdatedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss} · 복구할 내용을 확인하세요. 기존 사본의 편집과 상태는 유지합니다.";
         }
         catch (Exception ex) when (NoteWorkspace.IsNoteError(ex))
-        { if (!_closed && version == _selectionVersion) _status.Text = "내용을 읽을 수 없습니다. 사용 중이거나 지원하지 않는 파일일 수 있습니다. 원본은 보존했습니다."; }
+        {
+            if (!_closed && version == _selectionVersion)
+            {
+                _list.SelectedItem = null; // The same row can be selected again after a transient read failure.
+                _status.Text = PendingRecoveryResult.SourceFailure(ex).Message;
+            }
+        }
         finally { UpdateButtons(); }
     }
     private async Task RecoverAsync()
@@ -130,12 +138,9 @@ internal sealed class PendingRecoveryWindow : Window
         {
             var result = await _workspace.RecoverPendingAsync(preview);
             if (_closed) return;
-            _status.Text = result is null
-                ? "복구하지 못했습니다. 파일이 바뀌었거나 저장할 수 없습니다. 다시 선택하여 확인한 뒤 시도하세요. 원본은 보존됩니다."
-                : result.AlreadyRecovered
-                    ? "이전에 복구한 사본이 있습니다. 메모 목록·보관함·휴지통에서 확인하세요. 기존 편집과 상태는 유지했습니다."
-                    : "새 사본을 저장했습니다. ‘메모 목록 열기’에서 확인하세요. 원본은 보존됩니다.";
-            _list.SelectedItem = null; _preview = null;
+            _status.Text = result.Message;
+            _retry = !result.Succeeded && result.CanRetry;
+            if (!_retry) { _list.SelectedItem = null; _preview = null; }
         }
         finally { _recovering = false; UpdateButtons(); }
     }

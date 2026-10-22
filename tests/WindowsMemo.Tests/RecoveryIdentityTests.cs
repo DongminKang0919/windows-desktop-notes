@@ -40,8 +40,11 @@ internal static class RecoveryIdentityTests
         }
         NoteWorkspace Workspace(string folder, List<Surface>? surfaces = null) => new(folder, (view, _) =>
         { var surface = new Surface(view); surfaces?.Add(surface); return surface; });
-        PendingRecoveryResult Recover(NoteWorkspace workspace, Guid token) =>
-            Result(workspace.RecoverPendingAsync(Result(workspace.PreviewPendingAsync(token)))) ?? throw new InvalidOperationException("Expected successful recovery.");
+        PendingRecoveryResult Recover(NoteWorkspace workspace, Guid token)
+        {
+            var result = Result(workspace.RecoverPendingAsync(Result(workspace.PreviewPendingAsync(token))));
+            Require(result.Succeeded); return result;
+        }
         void Refused(Action action)
         {
             bool refused = false; try { action(); } catch (IOException) { refused = true; } Require(refused);
@@ -126,12 +129,12 @@ internal static class RecoveryIdentityTests
             using (var restarted = Workspace(fixture.Folder))
             {
                 Wait(restarted.InitializeAsync()); Require(restarted.Items.Single(item => item.Id == id).Error is not null);
-                Require(Result(restarted.RecoverPendingAsync(Result(restarted.PreviewPendingAsync(fixture.Token)))) is null);
+                Require(Result(restarted.RecoverPendingAsync(Result(restarted.PreviewPendingAsync(fixture.Token)))).Status == PendingRecoveryStatus.ExistingCopyUnavailable);
                 Require(File.ReadAllText(repo.PrimaryPath) == "damaged copy" && restarted.Items.Count == 2);
             }
             var missing = Fixture("missing"); using var next = Workspace(missing.Folder); Wait(next.InitializeAsync());
             id = Recover(next, missing.Token).Id; var missingRepo = new FileNoteRepository(missing.Folder, id); File.Delete(missingRepo.PrimaryPath);
-            Require(Result(next.RecoverPendingAsync(Result(next.PreviewPendingAsync(missing.Token)))) is null && !File.Exists(missingRepo.PrimaryPath));
+            Require(Result(next.RecoverPendingAsync(Result(next.PreviewPendingAsync(missing.Token)))).Status == PendingRecoveryStatus.ExistingCopyUnavailable && !File.Exists(missingRepo.PrimaryPath));
         });
         check("재실행 복구: 백업만 남은 사본도 중복 생성·본체 쓰기 없이 인식", () =>
         {

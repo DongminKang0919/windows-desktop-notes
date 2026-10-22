@@ -543,7 +543,8 @@ internal static class WorkspaceTests
                 var preview = Result(workspace.PreviewPendingAsync(token));
                 // Mutable preview data must never replace the re-verified source bytes.
                 preview.Record.Rtf[0] = 0;
-                copyId = Result(workspace.RecoverPendingAsync(preview))?.Id ?? throw new InvalidOperationException("Recovery failed.");
+                var recovery = Result(workspace.RecoverPendingAsync(preview)); Assert(recovery.Status == PendingRecoveryStatus.Created);
+                copyId = recovery.Id;
                 Assert(copyId != originalId && workspace.Items.Count == 2 && workspace.Items.Single(item => item.Id == copyId).Hidden);
                 Assert(Result(workspace.RecoverPendingAsync(preview)) is { AlreadyRecovered: true } repeated && repeated.Id == copyId && workspace.Items.Count == 2);
                 var copy = Load(name, copyId);
@@ -569,13 +570,13 @@ internal static class WorkspaceTests
             var repo = new FileNoteRepository(folder, id); string path = Path.Combine(folder, token.ToString("N") + ".tmp");
             File.Copy(repo.PrimaryPath, path); var preview = Result(workspace.PreviewPendingAsync(token));
             repo.Save(Load(name, id) with { UpdatedAtUtc = DateTimeOffset.UtcNow }); File.Copy(repo.PrimaryPath, path, true);
-            Assert(Result(workspace.RecoverPendingAsync(preview)) is null && workspace.Items.Count == 1);
+            Assert(Result(workspace.RecoverPendingAsync(preview)).Status == PendingRecoveryStatus.SourceChanged && workspace.Items.Count == 1);
             var seed = new FileNoteRepository(Path.Combine(root, "pending-invalid-rtf"), id);
             seed.Save(Load(name, id) with { Rtf = [1, 2, 3] }); File.Copy(seed.PrimaryPath, path, true);
             preview = Result(workspace.PreviewPendingAsync(token));
-            Assert(Result(workspace.RecoverPendingAsync(preview)) is null && workspace.Items.Count == 1 && File.Exists(path));
+            Assert(Result(workspace.RecoverPendingAsync(preview)).Status == PendingRecoveryStatus.InvalidSource && workspace.Items.Count == 1 && File.Exists(path));
             using (var held = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
-                Assert(Result(workspace.RecoverPendingAsync(preview)) is null);
+                Assert(Result(workspace.RecoverPendingAsync(preview)).Status == PendingRecoveryStatus.SourceUnavailable);
             Assert(!workspace.IsBusy && workspace.Items.Count == 1);
         });
         check("미완료 복구: 작업공간 준비·폐기 중 요청 거부", () =>
@@ -583,9 +584,9 @@ internal static class WorkspaceTests
             var surfaces = new List<Surface>(); using var workspace = Workspace("pending-busy", surfaces);
             var ready = new TaskCompletionSource(); var initializing = workspace.InitializeAsync(() => ready.Task);
             var preview = new PendingNotePreview(Guid.NewGuid(), "untrusted", null!);
-            Assert(Result(workspace.RecoverPendingAsync(preview)) is null);
+            Assert(Result(workspace.RecoverPendingAsync(preview)).Status == PendingRecoveryStatus.Busy);
             ready.SetResult(); Wait(initializing); workspace.Dispose();
-            Assert(Result(workspace.RecoverPendingAsync(preview)) is null);
+            Assert(Result(workspace.RecoverPendingAsync(preview)).Status == PendingRecoveryStatus.Busy);
         });
         check("숨김 20회: 폐기한 편집기 수집과 창 수 유지", () =>
         {

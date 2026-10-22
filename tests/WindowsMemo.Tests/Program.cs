@@ -123,6 +123,7 @@ internal static class Program
             TemporaryFileTests.Run(Check);
             PendingRecoveryTests.Run(Check);
             RecoveryIdentityTests.Run(Check);
+            RecoveryFeedbackTests.Run(Check);
             PendingCursorTests.Run(Check);
             WorkspaceTests.Run(Check);
             PendingRecoveryUiTests.Run(Check);

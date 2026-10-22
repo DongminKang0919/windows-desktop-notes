@@ -11,6 +11,10 @@ internal sealed record PendingNoteFile(Guid Token, DateTime ModifiedUtc)
 }
 internal sealed record PendingNoteScan(IReadOnlyList<PendingNoteFile> Files, bool Limited, int Skipped);
 internal sealed record PendingNotePreview(Guid Token, string Fingerprint, NoteRecord Record);
+internal sealed class PendingSourceChangedException : IOException
+{
+    internal PendingSourceChangedException() : base("미리보기 이후 파일이 변경되었습니다.") { }
+}
 
 // Never writes, promotes, or removes the source. Only caller-selected GUID.tmp paths are opened.
 internal sealed class PendingNoteRecovery(string root)
@@ -39,7 +43,7 @@ internal sealed class PendingNoteRecovery(string root)
         if (stream.Length is 0 or > FileNoteRepository.MaxFileBytes) throw new InvalidDataException("임시 파일 크기 한도를 초과했습니다.");
         string fingerprint = Convert.ToHexString(SHA256.HashData(stream));
         if (expectedFingerprint is not null && fingerprint != expectedFingerprint)
-            throw new InvalidDataException("미리보기 이후 파일이 변경되었습니다.");
+            throw new PendingSourceChangedException();
         stream.Position = 0;
         var record = FileNoteRepository.ReadSnapshot(stream);
         FileNoteRepository.CheckRoot(_root);

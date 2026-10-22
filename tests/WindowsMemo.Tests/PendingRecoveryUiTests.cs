@@ -64,8 +64,59 @@ internal static class PendingRecoveryUiTests
                     Wait(Until(() => layout.Children.OfType<TextBlock>().Any(text => text.Text.StartsWith("이전에 복구한 사본이 있습니다."))));
                     Require(workspace.Items.Count == 2 && File.Exists(path));
                     list.SelectedItem = list.Items.OfType<PendingNoteFile>().Single(file => file.Token == badToken);
-                    Wait(Until(() => layout.Children.OfType<TextBlock>().Any(text => text.Text.StartsWith("내용을 읽을 수 없습니다."))));
+                    Wait(Until(() => layout.Children.OfType<TextBlock>().Any(text => text.Text.StartsWith("이 계정에서 파일 내용을 확인할 수 없습니다."))));
                     Require(!recover.IsEnabled && new TextRange(preview.Document.ContentStart, preview.Document.ContentEnd).Text.Trim().Length == 0);
+                }
+                finally { window.Close(); }
+            });
+            check("미완료 복구 UI: 저장 실패 미리보기 유지·재시도 버튼·성공 후 정리", () =>
+            {
+                var fixture = FeedbackFixture(); using var workspace = fixture.Workspace; var window = fixture.Window;
+                try
+                {
+                    var layout = (Grid)window.Content; var list = layout.Children.OfType<ListBox>().Single();
+                    var body = layout.Children.OfType<RichTextBox>().Single();
+                    var recover = layout.Children.OfType<WrapPanel>().Single().Children.OfType<Button>().Single(button => Equals(button.Content, "새 메모로 복구"));
+                    list.SelectedIndex = 0; Wait(Until(() => recover.IsEnabled));
+                    var selected = list.SelectedItem; string content = new TextRange(body.Document.ContentStart, body.Document.ContentEnd).Text;
+                    byte[] source = File.ReadAllBytes(fixture.Source); var preview = new PendingNoteRecovery(Path.GetDirectoryName(fixture.Source)!).Read(fixture.Token);
+                    string blocked = new FileNoteRepository(Path.GetDirectoryName(fixture.Source)!, PendingNoteRecovery.CopyId(preview.Token, preview.Fingerprint)).PrimaryPath;
+                    Directory.CreateDirectory(blocked); recover.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Wait(Until(() => recover.IsEnabled && Equals(recover.Content, "복구 다시 시도")));
+                    Require(ReferenceEquals(list.SelectedItem, selected) && new TextRange(body.Document.ContentStart, body.Document.ContentEnd).Text == content);
+                    Require(workspace.Items.Count == 1 && File.ReadAllBytes(fixture.Source).SequenceEqual(source));
+                    layout.Measure(new Size(576, 536)); layout.Arrange(new Rect(0, 0, 576, 536)); layout.UpdateLayout();
+                    string images = Path.Combine(AppContext.BaseDirectory, "ui-previews"); Directory.CreateDirectory(images);
+                    NoteDesignTests.Save(layout, 576, 536, 1.5, Path.Combine(images, "recovery-retry-150.png"));
+                    Directory.Delete(blocked); recover.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Wait(Until(() => !workspace.IsBusy && workspace.Items.Count == 2));
+                    Require(!recover.IsEnabled && list.SelectedItem is null && Equals(recover.Content, "새 메모로 복구"));
+                    Require(File.ReadAllBytes(fixture.Source).SequenceEqual(source));
+                }
+                finally { window.Close(); }
+            });
+            check("미완료 복구 UI: 변경된 내용 복구 차단·읽기 실패 후 같은 행 재선택", () =>
+            {
+                var fixture = FeedbackFixture(); using var workspace = fixture.Workspace; var window = fixture.Window;
+                try
+                {
+                    var layout = (Grid)window.Content; var list = layout.Children.OfType<ListBox>().Single();
+                    var body = layout.Children.OfType<RichTextBox>().Single();
+                    var recover = layout.Children.OfType<WrapPanel>().Single().Children.OfType<Button>().Single(button => Equals(button.Content, "새 메모로 복구"));
+                    byte[] source = File.ReadAllBytes(fixture.Source); list.SelectedIndex = 0; Wait(Until(() => recover.IsEnabled));
+                    File.WriteAllText(fixture.Source, "changed after preview"); recover.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Wait(Until(() => layout.Children.OfType<TextBlock>().Any(text => text.Text.StartsWith("미리보기 뒤 파일이 변경됐습니다."))));
+                    Require(!recover.IsEnabled && list.SelectedItem is null && new TextRange(body.Document.ContentStart, body.Document.ContentEnd).Text.Trim().Length == 0);
+                    Require(workspace.Items.Count == 1 && File.ReadAllText(fixture.Source) == "changed after preview");
+                    File.WriteAllBytes(fixture.Source, source);
+                    using (var held = new FileStream(fixture.Source, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                    {
+                        list.SelectedIndex = 0;
+                        Wait(Until(() => layout.Children.OfType<TextBlock>().Any(text => text.Text.StartsWith("임시 파일을 읽지 못했습니다."))));
+                        Require(!recover.IsEnabled && list.SelectedItem is null);
+                    }
+                    list.SelectedIndex = 0; Wait(Until(() => recover.IsEnabled));
+                    Require(new TextRange(body.Document.ContentStart, body.Document.ContentEnd).Text.Contains("재시도용 메모"));
                 }
                 finally { window.Close(); }
             });
@@ -115,6 +166,18 @@ internal static class PendingRecoveryUiTests
             });
         }
         finally { SynchronizationContext.SetSynchronizationContext(previous); }
+    }
+    private static (NoteWorkspace Workspace, PendingRecoveryWindow Window, Guid Token, string Source) FeedbackFixture()
+    {
+        string root = Path.Combine(AppContext.BaseDirectory, "pending-ui-tests", Guid.NewGuid().ToString("N"));
+        var now = DateTimeOffset.UtcNow;
+        var record = new NoteRecord(4, Guid.NewGuid(), RtfDocumentCodec.Save(new FlowDocument(new Paragraph(new Run("재시도용 메모")))),
+            new(48, 64, 320, 300), now.AddDays(-1), now, Hidden: true, Paper: "Peach");
+        var repository = new FileNoteRepository(root, record.Id); repository.Save(record);
+        Guid token = Guid.NewGuid(); string source = Path.Combine(root, token.ToString("N") + ".tmp"); File.Copy(repository.PrimaryPath, source);
+        var workspace = new NoteWorkspace(root, (_, _) => new Surface()); Wait(workspace.InitializeAsync());
+        var window = new PendingRecoveryWindow(workspace, () => { }); Wait(window.RefreshAsync());
+        return (workspace, window, token, source);
     }
     private static async Task Until(Func<bool> condition)
     {
