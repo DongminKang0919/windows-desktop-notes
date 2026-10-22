@@ -105,7 +105,7 @@ internal static class NoteDesignTests
         Save(active, 320, 300, 2, Path.Combine(directory, "tools-200.png"));
         Console.WriteLine($"UI previews: {directory}");
     }
-    private static void Save(Visual visual, int width, int height, double scale, string path)
+    internal static void Save(Visual visual, int width, int height, double scale, string path)
     {
         var bitmap = new RenderTargetBitmap((int)(width * scale), (int)(height * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
         bitmap.Render(visual);

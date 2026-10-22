@@ -25,6 +25,7 @@ internal sealed class NoteWorkspace : IDisposable
     private readonly Dispatcher _dispatcher;
     private readonly Func<NoteView, NoteBounds?, INoteSurface> _createSurface;
     private readonly Dictionary<Guid, Entry> _entries = new();
+    private readonly Dictionary<(Guid Token, string Fingerprint), Guid> _recoveredPending = new();
     private bool _busy, _disposed;
     public bool IsBusy => _busy || _disposed;
     internal TemporaryFileResult TemporaryFiles { get; private set; } = new(0, 0, 0, 0, false);
@@ -162,6 +163,37 @@ internal sealed class NoteWorkspace : IDisposable
         }
         catch (Exception ex) when (IsNoteError(ex))
         { entry.Error = "복원하지 못했습니다. 파일은 보존됩니다."; return false; }
+        finally { _busy = false; Publish(); }
+    }
+    internal Task<PendingNoteScan> ScanPendingAsync() => Task.Run(() => new PendingNoteRecovery(_root).Scan());
+    internal Task<PendingNotePreview> PreviewPendingAsync(Guid token) => Task.Run(() => new PendingNoteRecovery(_root).Read(token));
+    internal async Task<Guid?> RecoverPendingAsync(PendingNotePreview preview)
+    {
+        if (IsBusy || _entries.Count >= 1000) return null;
+        _busy = true; Publish();
+        try
+        {
+            // Re-read the source: the preview's mutable record is never trusted as save input.
+            var verified = await Task.Run(() => new PendingNoteRecovery(_root).Read(preview.Token, preview.Fingerprint));
+            RtfDocumentCodec.Load(verified.Record.Rtf);
+            if (_disposed) return null;
+            var key = (verified.Token, verified.Fingerprint);
+            if (_recoveredPending.TryGetValue(key, out Guid existing) && _entries.ContainsKey(existing)) return existing;
+            Guid id = Guid.NewGuid();
+            var repository = new FileNoteRepository(_root, id);
+            var now = DateTimeOffset.UtcNow;
+            var copy = verified.Record with { SchemaVersion = 4, Id = id, CreatedAtUtc = now, UpdatedAtUtc = now,
+                Hidden = true, Archived = false, DeletedAtUtc = null, Collapsed = false };
+            await Task.Run(() => repository.Save(copy));
+            // Durable hidden copy first: failure cannot replace an existing note or lose the source.
+            if (!_disposed)
+            {
+                _entries.Add(id, new Entry(repository) { Hidden = true });
+                _recoveredPending[key] = id;
+            }
+            return id;
+        }
+        catch (Exception ex) when (IsNoteError(ex)) { return null; }
         finally { _busy = false; Publish(); }
     }
     private async void OnTrash(object? sender, EventArgs e)
@@ -310,6 +342,7 @@ internal sealed class NoteWorkspace : IDisposable
         _disposed = true;
         foreach (var entry in _entries.Values) entry.Session?.Dispose();
         _entries.Clear();
+        _recoveredPending.Clear();
         Changed = null; ListRequested = null; ArchiveListRequested = null; Notice = null;
     }
 }
