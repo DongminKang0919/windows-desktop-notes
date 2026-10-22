@@ -130,6 +130,7 @@ internal static class Program
             PendingRecoveryUiTests.Run(Check);
             PreviewSchedulingTests.Run(Check);
             NoteListTests.Run(Check);
+            SessionEndingTests.Run(Check);
             StartupTests.Run(Check);
             UpdateTests.Run(Check);
             UpdatePackageTests.Run(Check);

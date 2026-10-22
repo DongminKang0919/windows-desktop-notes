@@ -21,6 +21,8 @@ public sealed class AutosaveCoordinator : IDisposable
     private bool _disposed;
     private bool _saveFailed;
     internal bool IsScheduled => _timer.IsEnabled;
+    internal SaveState State => _disposed ? SaveState.Disposed : _saving is not null ? SaveState.Saving
+        : _saveFailed ? SaveState.Failed : _version != _savedVersion ? SaveState.Dirty : SaveState.Saved;
 
     public AutosaveCoordinator(NoteView view, FileNoteRepository repository, Func<NoteBounds> bounds, DateTimeOffset created, Func<bool>? hidden = null, Func<DateTimeOffset?>? deleted = null, Func<bool>? archived = null)
     {
@@ -59,20 +61,26 @@ public sealed class AutosaveCoordinator : IDisposable
     {
         if (_disposed) return false;
         if (_saving is not null && !await _saving) return false;
-        while (_version != _savedVersion) if (!await SaveAsync()) return false;
-        return true;
+        while (!_disposed && _version != _savedVersion) if (!await SaveAsync()) return false;
+        return !_disposed;
     }
     private Task<bool> SaveAsync()
     {
         if (_saving is not null) return _saving;
-        var task = SaveSnapshotAsync();
-        _saving = task;
-        return CompleteAsync(task);
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _saving = completion.Task;
+        _ = CompleteAsync(completion);
+        return completion.Task;
     }
-    private async Task<bool> CompleteAsync(Task<bool> task)
+    private async Task CompleteAsync(TaskCompletionSource<bool> completion)
     {
-        try { return await task; }
-        finally { _saving = null; }
+        try
+        {
+            bool result = await SaveSnapshotAsync();
+            _saving = null; // Clear before releasing ANY waiter, including concurrent flushes.
+            completion.SetResult(result);
+        }
+        catch (Exception ex) { _saving = null; completion.SetException(ex); }
     }
     private async Task<bool> SaveSnapshotAsync()
     {

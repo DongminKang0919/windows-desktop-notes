@@ -69,9 +69,9 @@ GitHub Projects 연결 전에는 `BACKLOG.md`로 관리한다. 연결 후 이슈
 
 바탕화면 부착, Win+D, 클릭 및 입력은 실제 Windows 환경에서 수동 검증한다. Windows 빌드, 화면 배율, 모니터 수와 결과를 기록한다. 자동 테스트는 이 확인을 대신하지 않는다.
 
-## Git와 CI 도입 계획
+## Git와 CI 운영
 
-현재 로컬 Git 저장소를 main 브랜치로 초기화하고 https://github.com/DongminKang0919/windows-desktop-notes.git 를 origin으로 연결했다. Windows 빌드 CI 워크플로를 추가했으며 원격 실행 검증은 남아 있다. GitHub Projects는 아직 연결하지 않았다.
+origin은 https://github.com/DongminKang0919/windows-desktop-notes.git 이며 main을 기준으로 작업한다. PR #12까지 병합했고 원격 Windows 빌드·실행형 하네스·중단 복구·수명 smoke·UI artifact 성공을 확인했다. GitHub Projects 보드·이슈 연결, 게시자 인증·서명·실제 설치본 업데이트, 8/24시간 상주는 미완료다. 과거 로컬 차단 기록과 현재 실행 결과를 버전별로 구분한다.
 
 - `main`을 기본 브랜치로 사용한다.
 - 작업별로 짧은 브랜치를 사용한다. 예: `feat/desktop-attachment`, `fix/note-restore`, `docs/readme`.

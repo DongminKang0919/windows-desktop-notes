@@ -36,6 +36,10 @@ internal static class Program
                 ? new WindowNoteSurface(view, bounds) : new DesktopNoteSurface(view, bounds));
             using var updater = updateTest ? new UpdaterService(new VelopackUpdateBackend(args[1])) : null;
             using var tray = new TrayController(app, workspace, diagnostic ? null : StartupService.ForCurrentBuild(), updater);
+            using var blockReason = new Interop.SessionEndBlockReason();
+            using var sessionEnding = new SessionEndingCoordinator(() => workspace.SessionEndState,
+                workspace.FlushAllAsync, action => app.Dispatcher.BeginInvoke(DispatcherPriority.Background, action),
+                result => { if (result == SessionPreparationResult.Ready) blockReason.Clear(); tray.ShowSessionPreparation(result); });
             app.Startup += async (_, _) =>
             {
                 try
@@ -58,13 +62,20 @@ internal static class Program
                     app.Shutdown(1);
                 }
             };
-            app.SessionEnding += (_, e) =>
+            void OnSessionEnding(object? sender, SessionEndingCancelEventArgs e)
             {
-                // Refuse session shutdown when the latest data cannot be flushed in time.
-                e.Cancel = true;
-                _ = tray.ExitAsync();
-            };
-            return app.Run();
+                var decision = sessionEnding.Decide();
+                e.Cancel = decision.Cancel;
+                if (e.Cancel)
+                {
+                    blockReason.Register(decision.State);
+                    sessionEnding.PrepareAfterCancellation();
+                }
+                else blockReason.Clear();
+            }
+            app.SessionEnding += OnSessionEnding;
+            try { return app.Run(); }
+            finally { app.SessionEnding -= OnSessionEnding; }
         }
         catch (Exception ex) when (NoteWorkspace.IsNoteError(ex))
         {

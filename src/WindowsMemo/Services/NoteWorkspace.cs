@@ -28,6 +28,22 @@ internal sealed class NoteWorkspace : IDisposable
     private readonly Func<NoteView, NoteBounds?, INoteSurface> _createSurface;
     private readonly Dictionary<Guid, Entry> _entries = new();
     private bool _busy, _disposed;
+    private bool _initialized;
+    internal SessionEndState SessionEndState
+    {
+        get
+        {
+            if (_disposed) return SessionEndState.Disposed;
+            if (!_initialized) return SessionEndState.Preparing;
+            if (_busy) return SessionEndState.Busy;
+            var states = _entries.Values.Select(entry => entry.Session?.SaveState).ToArray();
+            if (states.Contains(SaveState.Saving)) return SessionEndState.Saving;
+            if (states.Contains(SaveState.Failed)) return SessionEndState.Failed;
+            if (states.Contains(SaveState.Dirty)) return SessionEndState.Dirty;
+            if (states.Contains(SaveState.Disposed)) return SessionEndState.Disposed;
+            return SessionEndState.Saved;
+        }
+    }
     public bool IsBusy => _busy || _disposed;
     internal TemporaryFileResult TemporaryFiles { get; private set; } = new(0, 0, 0, 0, false);
     public event EventHandler? Changed;
@@ -71,16 +87,21 @@ internal sealed class NoteWorkspace : IDisposable
         try
         {
             if (prepare is not null) await prepare();
+            if (_disposed) return;
             TemporaryFiles = await Task.Run(() => TemporaryNoteMaintenance.Run(_root, DateTimeOffset.UtcNow,
                 record => _dispatcher.Invoke(() => RtfDocumentCodec.Load(record.Rtf))));
+            if (_disposed) return;
             var ids = await Task.Run(() => FileNoteRepository.DiscoverIds(_root));
+            if (_disposed) return;
             foreach (Guid id in ids)
             {
+                if (_disposed) return;
                 var entry = new Entry(new FileNoteRepository(_root, id));
                 _entries.Add(id, entry);
                 try
                 {
                     var loaded = await LoadAsync(entry);
+                    if (_disposed) return;
                     if (loaded.Record is null) throw new System.IO.InvalidDataException("메모 파일이 없어졌습니다.");
                     entry.Hidden = loaded.Record.Hidden;
                     entry.Trashed = loaded.Record.DeletedAtUtc is not null;
@@ -90,7 +111,9 @@ internal sealed class NoteWorkspace : IDisposable
                 }
                 catch (Exception ex) when (IsNoteError(ex)) { entry.Title = "확인할 수 없는 메모"; entry.Error = "복원하지 못했습니다. 파일은 보존됩니다."; }
             }
+            if (_disposed) return;
             if (_entries.Count == 0) CreateCore(Guid.NewGuid());
+            _initialized = true;
         }
         finally { _busy = false; Publish(); }
     }
@@ -362,12 +385,12 @@ internal sealed class NoteWorkspace : IDisposable
             bool success = true;
             // Try every visible note; one failure must not discard or skip another note.
             foreach (var session in sessions) if (!await session.FlushAsync()) success = false;
-            if (success) afterSave?.Invoke();
-            return success;
+            if (success && !_disposed) afterSave?.Invoke();
+            return success && !_disposed;
         }
         finally
         {
-            foreach (var session in sessions) session.SetEnabled(true);
+            if (!_disposed) foreach (var session in sessions) session.SetEnabled(true);
             _busy = false; Publish();
         }
     }

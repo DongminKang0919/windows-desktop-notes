@@ -14,6 +14,7 @@ internal sealed class NoteSession : IDisposable
     private bool _archived;
     public NoteView View { get; }
     public Guid Id { get; }
+    internal SaveState SaveState => _saves.State;
 
     public NoteSession(FileNoteRepository repository, NoteRecord? record,
         Func<NoteView, NoteBounds?, INoteSurface> createSurface)
