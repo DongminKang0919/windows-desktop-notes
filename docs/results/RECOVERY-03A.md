@@ -19,6 +19,7 @@
 - 수정 전 추가 회귀 시험에서 중단 후 TaskbarCreated를 받아도 재시작하지 않는 문제를 재현했다.
 - 추가 시험 2개는 이 프로세스의 비표시 observer HWND에만 SendMessage를 보내며 시스템 전체에 방송하지 않는다. 대기 알림 병합, 새 시도의 상한, 진행 중 한도 보존, 복구 후 한글 본문·굵기·글자색·종이색·접힘·좌표 보존과 폐기 후 콜백 무효화를 확인한다.
 - 로컬 최종 실행은 Windows 애플리케이션 제어가 시험 DLL 로드를 차단했다(0x800711C7, 동일 실행 재확인도 차단). 정책 비활성화·파일 차단 우회는 수행하지 않았다. 최종 회귀 검증은 GitHub Windows CI로 확인하며 결과를 PR에 기록한다.
+- 제품 코드·시험 커밋 8232e01의 [Windows CI 실행](https://github.com/DongminKang0919/windows-desktop-notes/actions/runs/39709070377)에서 Release 경고/오류 0과 자동 검증 72개 PASS를 확인했다. CI에는 실제 Explorer 부모를 사용하는 `--shell-probe`가 포함되지 않는다. 검토는 [PR #3](https://github.com/DongminKang0919/windows-desktop-notes/pull/3)에서 진행한다.
 
 ## 실제 환경에서 남은 확인
 
