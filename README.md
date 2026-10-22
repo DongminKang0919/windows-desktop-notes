@@ -4,7 +4,7 @@
 
 다른 프로그램을 사용할 때는 창 뒤에 놓이고, 바탕화면 보기에서는 메모를 바로 확인하고 편집할 수 있도록 만들고 있습니다. C#과 WPF로 개발하며 메모는 이 PC에 저장합니다.
 
-> 현재 버전은 **0.9.3 prototype**입니다. 저장 실패 중에는 메모를 접아 오류 안내와 재시도 버튼을 숨길 수 없으며, 저장에 성공하면 다시 접을 수 있습니다. 초기 바탕화면 대기·탐색기/절전 복귀 시 연결 복구와 임시 창 배치 저장을 유지합니다. 실제 Windows UI와 설치본 업데이트 검증, 정식 릴리스는 남아 있습니다. 바탕화면 부착은 탐색기의 내부 창 구조에 의존하므로 환경에 따라 동작이 달라질 수 있습니다.
+> 현재 버전은 **0.9.4 prototype**입니다. 저장 실패 중에는 메모를 접아 오류 안내와 재시도 버튼을 숨길 수 없으며, 저장에 성공하면 다시 접을 수 있습니다. 초기 바탕화면 대기·탐색기/절전 복귀 시 연결 복구와 임시 창 배치 저장을 유지합니다. 실제 Windows UI와 설치본 업데이트 검증, 정식 릴리스는 남아 있습니다. 바탕화면 부착은 탐색기의 내부 창 구조에 의존하므로 환경에 따라 동작이 달라질 수 있습니다.
 
 ## 주요 기능
 
@@ -17,6 +17,7 @@
 - **숨김과 재표시:** 닫기는 저장 후 숨김, 목록에서 다시 열기, 트레이에서 실제 앱 종료
 - **자동 저장과 복원:** 본문·서식·위치·크기·숨김 상태를 저장하고 다음 실행에서 복원
 - **로컬 암호화:** Windows 사용자 계정 범위의 DPAPI로 저장 파일·임시 파일·백업 보호
+- **중복 임시 파일 정리:** 시작 시 24시간이 지난 파일 중 더 최근 정상 저장본과 내용·상태가 같은 것만 제한적으로 정리. 고유한 미완료 내용은 보존하며 자동으로 메모로 만들지 않음
 - **연결 복구:** 바탕화면 연결이 끊기면 임시 창에서 편집을 유지하고 최대 10회 재연결 시도
 
 여러 메모·트레이 구현 결과는 [검증 기록](docs/results/MULTINOTE-07B.md)을 참고해 주세요. 휴지통 구현 결과는 [검증 기록](docs/results/TRASH-08.md)을 참고해 주세요. 로그인 자동 실행 구현·검증은 [기록](docs/results/STARTUP-09.md)을 참고해 주세요. 자동 업데이트는 후속 개발 항목입니다. **닫기 버튼은 저장 후 해당 메모를 숨기며, 앱 종료는 트레이 메뉴에서 수행**합니다.
@@ -61,7 +62,7 @@ dotnet build WindowsMemo.slnx --configuration Release
 
 ## ZIP 패키지 만들기
 
-프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정에서 읽으며, 현재 앱 버전은 0.9.3입니다.
+프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정에서 읽으며, 현재 앱 버전은 0.9.4입니다.
 
 ```powershell
 .\scripts\package.ps1
@@ -85,7 +86,7 @@ ZIP 전체를 풀고 `WindowsMemo.exe`를 실행합니다. **.NET 10 Desktop Run
 
 ZIP 검증 후 Velopack으로 설치 EXE, full 업데이트 패키지와 피드를 `artifacts/package-GUID/installer`에 만듭니다. 설치 루트는 `%LOCALAPPDATA%\WindowsMemoApp`, 메모는 기존 `%LOCALAPPDATA%\WindowsMemo\Notes`로 분리합니다. .NET 10 Desktop Runtime x64가 없으면 설치기가 다운로드하도록 설정했습니다. 설치기는 완료 후 앱을 실행합니다.
 
-`scripts/verify-installer.ps1 -ReleaseDirectory <폴더> -ExpectedVersion 0.9.3`으로 파일·피드·payload 해시를 검사하고, `scripts/test-installer.ps1 -ReleaseDirectory <폴더>`로 변조 거부를 확인합니다. [수동 installer CI](.github/workflows/installer.yml)는 artifact만 생성합니다. **서명되지 않은 prototype이며 실제 설치·제거·버전 간 업데이트 검증은 남아 있습니다.** 기존 0.7.0 산출물은 [검증 기록](docs/results/INSTALLER-10B1.md)을 참고해 주세요.
+`scripts/verify-installer.ps1 -ReleaseDirectory <폴더> -ExpectedVersion 0.9.4`으로 파일·피드·payload 해시를 검사하고, `scripts/test-installer.ps1 -ReleaseDirectory <폴더>`로 변조 거부를 확인합니다. [수동 installer CI](.github/workflows/installer.yml)는 artifact만 생성합니다. **서명되지 않은 prototype이며 실제 설치·제거·버전 간 업데이트 검증은 남아 있습니다.** 기존 0.7.0 산출물은 [검증 기록](docs/results/INSTALLER-10B1.md)을 참고해 주세요.
 
 ## 로컬 시험 업데이트
 
@@ -129,7 +130,7 @@ ZIP 검증 후 Velopack으로 설치 EXE, full 업데이트 패키지와 피드�
 
 ## 현재 검증 범위
 
-0.9.3의 로컬 Release 빌드와 검증 **79개**(자동 78개 + 실제 바탕화면 비표시 호스트 1개)를 통과했습니다. [저장 실패 안내·닫기·재연결 검증](docs/results/SAVE-FAILURE-04A.md)을 참조합니다. 0.9.2의 [복구 재개](docs/results/RECOVERY-03A.md), [초기 셸 부재 시 저장·복원](docs/results/STARTUP-03B.md), [임시 창 배치·수명 검증](docs/results/FALLBACK-03C.md)도 유지합니다. 아래 0.9.1 결과는 이전 버전의 검증 이력입니다.
+0.9.4의 로컬 Release 빌드와 검증 **87개**(자동 86개 + 실제 바탕화면 비표시 호스트 1개)를 통과했습니다. [저장 실패 안내·닫기·재연결](docs/results/SAVE-FAILURE-04A.md)과 [중복 임시 파일 선별·보존 검증](docs/results/TEMPORARY-04C.md)을 참조합니다. 0.9.2의 [복구 재개](docs/results/RECOVERY-03A.md), [초기 셸 부재 시 저장·복원](docs/results/STARTUP-03B.md), [임시 창 배치·수명 검증](docs/results/FALLBACK-03C.md)도 유지합니다. 아래 0.9.1 결과는 이전 버전의 검증 이력입니다.
 
 Windows 빌드 26300, x64 환경에서 0.9.1 Release 빌드와 검증 **71개**를 통과했습니다(자동 70개 + 보이지 않는 실제 바탕화면 호스트 1개). 저장·복구·보관·입력 제한·업데이트 패키지 경계와 제품 정보 검사를 포함합니다. 0.9.0의 100/150/200% UI 렌더링 확인과 실제 호스트 부모·WS_CHILD·TopMost 미사용·접힘 검증을 유지합니다. 실제 배율 전환·IME·Win+D 입력 시험과 설치본 업데이트를 대신하지 않습니다.
 

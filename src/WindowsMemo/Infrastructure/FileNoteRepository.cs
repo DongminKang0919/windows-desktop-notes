@@ -168,6 +168,14 @@ public sealed class FileNoteRepository
     private NoteRecord Read(string file)
     {
         using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var record = ReadSnapshot(stream);
+        ValidateIdentity(record);
+        return record;
+    }
+
+    // Same bounded DPAPI/schema validation for committed files and maintenance snapshots.
+    internal static NoteRecord ReadSnapshot(Stream stream)
+    {
         if (stream.Length is 0 or > MaxFileBytes) throw new InvalidDataException("잘못된 저장 파일 크기입니다.");
         byte[] bytes = new byte[(int)stream.Length];
         stream.ReadExactly(bytes);
@@ -179,7 +187,7 @@ public sealed class FileNoteRepository
         {
             if (plain.Length > 3 * 1024 * 1024) throw new InvalidDataException("복원 데이터가 크기 한도를 초과했습니다.");
             var record = JsonSerializer.Deserialize<NoteRecord>(plain, JsonOptions) ?? throw new InvalidDataException("메모 데이터가 없습니다.");
-            ValidateIdentity(record);
+            Validate(record);
             return record;
         }
         finally { CryptographicOperations.ZeroMemory(plain); }
@@ -208,11 +216,11 @@ public sealed class FileNoteRepository
         CheckLink(PrimaryPath);
         CheckLink(BackupPath);
     }
-    private static void CheckRoot(string root)
+    internal static void CheckRoot(string root)
     {
         for (string? current = root; current is not null; current = Path.GetDirectoryName(current)) CheckLink(current);
     }
-    private static void CheckLink(string path)
+    internal static void CheckLink(string path)
     {
         try
         {

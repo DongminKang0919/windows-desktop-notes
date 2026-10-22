@@ -226,6 +226,37 @@ internal static class WorkspaceTests
             }
             Assert(surfaces.All(surface => !surface.Host.HasFallback && surface.Host.Handle == 0));
         });
+        check("초기화 임시 정리: 중복만 제거·고유/최근 보존·자동 메모 승격 금지", () =>
+        {
+            const string name = "temporary-startup";
+            string folder = Path.Combine(root, name);
+            var surfaces = new List<Surface>(); Guid id;
+            using (var workspace = Workspace(name, surfaces))
+            {
+                Wait(workspace.InitializeAsync()); id = workspace.Items.Single().Id;
+                surfaces[0].View!.InsertPlainText("확정된 메모를 유지");
+                Assert(Wait(workspace.FlushAllAsync()));
+            }
+            var repository = new FileNoteRepository(folder, id);
+            var record = repository.Load(value => RtfDocumentCodec.Load(value.Rtf), out _)!;
+            string duplicate = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".tmp");
+            File.Copy(repository.PrimaryPath, duplicate); File.SetLastWriteTimeUtc(duplicate, DateTime.UtcNow.AddDays(-2));
+            repository.Save(record with { UpdatedAtUtc = DateTimeOffset.UtcNow });
+            string recent = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".tmp"); File.Copy(repository.PrimaryPath, recent);
+            var draft = new FileNoteRepository(Path.Combine(root, "pending-seed"), id);
+            draft.Save(record with { Rtf = RtfDocumentCodec.Save(new FlowDocument(new Paragraph(new Run("未완료 새 본문은 자동 승격 금지")))) });
+            string unique = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".tmp");
+            File.Copy(draft.PrimaryPath, unique); File.SetLastWriteTimeUtc(unique, DateTime.UtcNow.AddDays(-2));
+            byte[] pendingBytes = File.ReadAllBytes(unique);
+            using (var workspace = Workspace(name, surfaces))
+            {
+                Wait(workspace.InitializeAsync());
+                Assert(workspace.TemporaryFiles.Removed == 1 && workspace.TemporaryFiles.Preserved == 2);
+                Assert(!File.Exists(duplicate) && File.Exists(recent) && File.ReadAllBytes(unique).SequenceEqual(pendingBytes));
+                Assert(workspace.Items.Count == 1 && workspace.Items.Single().Id == id && Text(surfaces[^1].View!) == "확정된 메모를 유지");
+                Assert(Wait(workspace.FlushAllAsync()));
+            }
+        });
         check("메모 수명: 생성·서식·숨김·재표시·재실행", () =>
         {
             var surfaces = new List<Surface>();
