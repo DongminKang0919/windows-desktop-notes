@@ -23,6 +23,7 @@ internal static class Program
             }
             if (args.Length > 0 && args[0] == "--crash-probe-child") { CrashProbe.RunChild(args[1..]); return 0; }
             if (args.Length > 0 && args[0] == "--workspace-probe") { WorkspaceProbe.Run(args[1..]); return 0; }
+            if (args.Length > 0 && args[0] == "--recovery-probe") { RecoveryLifetimeProbe.Run(args[1..]); return 0; }
             if (args.Contains("--performance-probe")) { PerformanceProbe.Run(); return 0; }
             if (args.Contains("--stability-probe")) { StabilityProbe.Run(); return 0; }
             if (args.Length == 2 && args[0] == "--validate-update-package") { UpdatePackageTests.ValidateKnownPackage(args[1]); return 0; }
@@ -123,6 +124,7 @@ internal static class Program
             TemporaryFileTests.Run(Check);
             PendingRecoveryTests.Run(Check);
             RecoveryIdentityTests.Run(Check);
+            RecoveryFeedbackTests.Run(Check);
             PendingCursorTests.Run(Check);
             WorkspaceTests.Run(Check);
             PendingRecoveryUiTests.Run(Check);
