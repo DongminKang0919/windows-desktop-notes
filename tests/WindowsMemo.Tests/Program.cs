@@ -121,7 +121,9 @@ internal static class Program
             RecoveryTests.Run(Check);
             StorageTests.Run(Check);
             TemporaryFileTests.Run(Check);
+            PendingRecoveryTests.Run(Check);
             WorkspaceTests.Run(Check);
+            PendingRecoveryUiTests.Run(Check);
             StartupTests.Run(Check);
             UpdateTests.Run(Check);
             UpdatePackageTests.Run(Check);

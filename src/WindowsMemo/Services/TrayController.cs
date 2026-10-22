@@ -22,6 +22,8 @@ internal sealed class TrayController : IDisposable
     private readonly Forms.ToolStripMenuItem _trash = new("휴지통");
     private readonly Forms.ToolStripMenuItem _archive = new("보관함");
     private readonly Forms.ToolStripMenuItem _undoArchive = new("보관 실행 취소");
+    private readonly Forms.ToolStripMenuItem _recovery = new("미완료 메모 복구");
+    private PendingRecoveryWindow? _recoveryWindow;
     private NoteListWindow? _archiveWindow;
     private bool _couldUndo;
     private NoteListWindow? _trashWindow;
@@ -34,7 +36,7 @@ internal sealed class TrayController : IDisposable
         _app = app; _workspace = workspace; _startupService = startupService; _updater = updater;
         try
         {
-            _menu.Items.AddRange([_new, _list, _archive, _undoArchive, _trash, new Forms.ToolStripSeparator(), _startup, new Forms.ToolStripSeparator(), _exit]);
+            _menu.Items.AddRange([_new, _list, _archive, _undoArchive, _trash, _recovery, new Forms.ToolStripSeparator(), _startup, new Forms.ToolStripSeparator(), _exit]);
             if (_updater is not null) _menu.Items.Insert(_menu.Items.Count - 1, _update);
             _tray.Icon = _icon; _tray.Text = $"Windows 메모 · {typeof(TrayController).Assembly.GetName().Version?.ToString(3)} prototype"; _tray.ContextMenuStrip = _menu;
             _new.Click += OnNew; _list.Click += OnList; _trash.Click += OnTrash; _exit.Click += OnExit;
@@ -43,6 +45,7 @@ internal sealed class TrayController : IDisposable
             _update.Click += OnUpdate;
             _archive.Click += OnArchive;
             _undoArchive.Click += OnUndoArchive;
+            _recovery.Click += OnRecovery;
             _menu.Opening += OnMenuOpening;
             RefreshStartup();
             workspace.Changed += OnChanged; workspace.ListRequested += OnList; workspace.Notice += OnNotice;
@@ -83,6 +86,17 @@ internal sealed class TrayController : IDisposable
     });
     private void OnMenuOpening(object? sender, System.ComponentModel.CancelEventArgs e)
     { RefreshStartup(); RefreshUpdate(); _undoArchive.Enabled = _workspace.CanUndoArchive && !_workspace.IsBusy; }
+    private void OnRecovery(object? sender, EventArgs e) => Dispatch(() =>
+    {
+        if (_recoveryWindow is null)
+        {
+            _recoveryWindow = new PendingRecoveryWindow(_workspace, ShowList);
+            _recoveryWindow.Closed += (_, _) => _recoveryWindow = null;
+            _recoveryWindow.Show();
+        }
+        if (_recoveryWindow.WindowState == WindowState.Minimized) _recoveryWindow.WindowState = WindowState.Normal;
+        _recoveryWindow.Activate();
+    });
     private void OnArchive(object? sender, EventArgs e) => Dispatch(() =>
     {
         if (_archiveWindow is null)
@@ -202,11 +216,13 @@ internal sealed class TrayController : IDisposable
         _startup.Click -= OnStartup; _menu.Opening -= OnMenuOpening;
         _update.Click -= OnUpdate;
         _archive.Click -= OnArchive; _undoArchive.Click -= OnUndoArchive;
+        _recovery.Click -= OnRecovery;
         _update.Dispose();
         _tray.Visible = false; _tray.ContextMenuStrip = null;
         _tray.Dispose(); _menu.Dispose(); _icon.Dispose();
         _window?.Close(); _window = null;
         _trashWindow?.Close(); _trashWindow = null;
         _archiveWindow?.Close(); _archiveWindow = null;
+        _recoveryWindow?.Close(); _recoveryWindow = null;
     }
 }

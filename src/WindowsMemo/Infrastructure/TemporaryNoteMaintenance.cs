@@ -20,7 +20,7 @@ internal static class TemporaryNoteMaintenance
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetFileInformationByHandle(SafeFileHandle handle, int informationClass, ref byte delete, uint size);
 
-    private static FileStream OpenSnapshot(string path, bool canDelete)
+    internal static FileStream OpenSnapshot(string path, bool canDelete)
     {
         FileNoteRepository.CheckLink(path);
         // OPEN_EXISTING + OPEN_REPARSE_POINT. Only pending files request DELETE, with exclusive sharing.

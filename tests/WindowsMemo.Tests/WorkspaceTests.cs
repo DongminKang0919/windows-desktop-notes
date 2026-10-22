@@ -524,6 +524,69 @@ internal static class WorkspaceTests
             Assert(workspace.ArchiveItems.Single().Id == id);
             Assert(Wait(workspace.TrashAsync(id)) && workspace.ArchiveItems.Count == 0 && workspace.TrashItems.Count == 1);
         });
+        check("미완료 복구: 새 ID·숨김 사본 저장·서식·색상·재실행·원본 보존", () =>
+        {
+            const string name = "pending-copy"; string folder = Path.Combine(root, name);
+            var surfaces = new List<Surface>(); Guid copyId, originalId; string path; byte[] source, primary;
+            using (var workspace = Workspace(name, surfaces))
+            {
+                Wait(workspace.InitializeAsync()); originalId = workspace.Items.Single().Id;
+                var view = surfaces[0].View!; view.InsertPlainText("복구 전 원본"); Assert(Wait(workspace.FlushAllAsync()));
+                var repo = new FileNoteRepository(folder, originalId); primary = File.ReadAllBytes(repo.PrimaryPath);
+                var original = Load(name, originalId);
+                var doc = new FlowDocument(new Paragraph(new Run("☑ 미완료 서식 내용") { FontWeight = System.Windows.FontWeights.Bold }));
+                var seed = new FileNoteRepository(Path.Combine(root, "pending-seed"), originalId);
+                seed.Save(original with { Rtf = RtfDocumentCodec.Save(doc), Paper = "Sage", Hidden = true, Archived = true, Collapsed = true });
+                Guid token = Guid.NewGuid(); path = Path.Combine(folder, token.ToString("N") + ".tmp");
+                File.Copy(seed.PrimaryPath, path); source = File.ReadAllBytes(path);
+                var scan = Result(workspace.ScanPendingAsync()); Assert(scan.Files.Single().Token == token);
+                var preview = Result(workspace.PreviewPendingAsync(token));
+                // Mutable preview data must never replace the re-verified source bytes.
+                preview.Record.Rtf[0] = 0;
+                copyId = Result(workspace.RecoverPendingAsync(preview)) ?? throw new InvalidOperationException("Recovery failed.");
+                Assert(copyId != originalId && workspace.Items.Count == 2 && workspace.Items.Single(item => item.Id == copyId).Hidden);
+                Assert(Result(workspace.RecoverPendingAsync(preview)) == copyId && workspace.Items.Count == 2);
+                var copy = Load(name, copyId);
+                Assert(copy.Hidden && !copy.Archived && copy.DeletedAtUtc is null && !copy.Collapsed && copy.Paper == "Sage");
+                var restored = RtfDocumentCodec.Load(copy.Rtf);
+                Assert(new TextRange(restored.ContentStart, restored.ContentEnd).Text.Trim() == "☑ 미완료 서식 내용");
+                var start = restored.ContentStart.GetInsertionPosition(LogicalDirection.Forward);
+                Assert(new TextRange(start, start.GetNextInsertionPosition(LogicalDirection.Forward)!).GetPropertyValue(TextElement.FontWeightProperty).Equals(System.Windows.FontWeights.Bold));
+                Assert(File.ReadAllBytes(path).SequenceEqual(source) && File.ReadAllBytes(repo.PrimaryPath).SequenceEqual(primary));
+            }
+            using (var workspace = Workspace(name, surfaces))
+            {
+                Wait(workspace.InitializeAsync()); Assert(workspace.Items.Count == 2 && workspace.Items.Single(item => item.Id == copyId).Hidden);
+                Assert(Wait(workspace.ShowAsync(copyId)) && Text(surfaces[^1].View!) == "☑ 미완료 서식 내용");
+                Assert(File.ReadAllBytes(path).SequenceEqual(source));
+            }
+        });
+        check("미완료 복구: 변경·손상 RTF·잠김 실패는 메모 수와 원본 보존", () =>
+        {
+            const string name = "pending-reject"; var surfaces = new List<Surface>(); using var workspace = Workspace(name, surfaces);
+            Wait(workspace.InitializeAsync()); Assert(Wait(workspace.FlushAllAsync()));
+            Guid id = workspace.Items.Single().Id, token = Guid.NewGuid(); string folder = Path.Combine(root, name);
+            var repo = new FileNoteRepository(folder, id); string path = Path.Combine(folder, token.ToString("N") + ".tmp");
+            File.Copy(repo.PrimaryPath, path); var preview = Result(workspace.PreviewPendingAsync(token));
+            repo.Save(Load(name, id) with { UpdatedAtUtc = DateTimeOffset.UtcNow }); File.Copy(repo.PrimaryPath, path, true);
+            Assert(Result(workspace.RecoverPendingAsync(preview)) is null && workspace.Items.Count == 1);
+            var seed = new FileNoteRepository(Path.Combine(root, "pending-invalid-rtf"), id);
+            seed.Save(Load(name, id) with { Rtf = [1, 2, 3] }); File.Copy(seed.PrimaryPath, path, true);
+            preview = Result(workspace.PreviewPendingAsync(token));
+            Assert(Result(workspace.RecoverPendingAsync(preview)) is null && workspace.Items.Count == 1 && File.Exists(path));
+            using (var held = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                Assert(Result(workspace.RecoverPendingAsync(preview)) is null);
+            Assert(!workspace.IsBusy && workspace.Items.Count == 1);
+        });
+        check("미완료 복구: 작업공간 준비·폐기 중 요청 거부", () =>
+        {
+            var surfaces = new List<Surface>(); using var workspace = Workspace("pending-busy", surfaces);
+            var ready = new TaskCompletionSource(); var initializing = workspace.InitializeAsync(() => ready.Task);
+            var preview = new PendingNotePreview(Guid.NewGuid(), "untrusted", null!);
+            Assert(Result(workspace.RecoverPendingAsync(preview)) is null);
+            ready.SetResult(); Wait(initializing); workspace.Dispose();
+            Assert(Result(workspace.RecoverPendingAsync(preview)) is null);
+        });
         check("숨김 20회: 폐기한 편집기 수집과 창 수 유지", () =>
         {
             var surfaces = new List<Surface>(); using var workspace = Workspace("repeated", surfaces);
@@ -554,5 +617,6 @@ internal static class WorkspaceTests
     }
     private static void Wait(Task task) { Pump(task); task.GetAwaiter().GetResult(); }
     private static bool Wait(Task<bool> task) { Pump(task); return task.GetAwaiter().GetResult(); }
+    private static T Result<T>(Task<T> task) { Pump(task); return task.GetAwaiter().GetResult(); }
     private static void Assert(bool value) { if (!value) throw new InvalidOperationException("Workspace assertion failed."); }
 }

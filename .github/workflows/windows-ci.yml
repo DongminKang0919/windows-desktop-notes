@@ -41,3 +41,12 @@ jobs:
         run: dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll
       - name: Run isolated crash recovery probe
         run: dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll --crash-probe
+      - name: Render sample note controls
+        run: dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll --render-ui-only
+      - name: Upload sample UI renders
+        uses: actions/upload-artifact@v7
+        with:
+          name: sample-ui-renders
+          path: tests/WindowsMemo.Tests/bin/Release/net10.0-windows/ui-previews/*.png
+          retention-days: 14
+          if-no-files-found: error
