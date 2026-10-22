@@ -34,7 +34,17 @@ dotnet artifacts/workspace-disposal-validation/bin/WindowsMemo.Tests/release/Win
 
 - 기존 앱 출력과 분리한 Release 빌드: 경고 0, 오류 0.
 - 수정 전 재현 실행과 수정 후 하네스 모두 앱 제어 정책 `0x800711C7`에 차단됐다. **로컬 회귀 검사·셸 검사는 미실행**이다. 보안 설정·서명·화이트리스트를 바꾸거나 우회 실행하지 않았다.
-- Windows CI의 기존 자동 검사·중단 복구 10건·복구 창 수명 smoke·UI 렌더에서 수정본을 검증한다. 원격 결과는 확인 후 아래에 기록한다.
+- 수정한 Markdown의 로컬 파일 링크와 `git diff --check` 통과.
+
+## Windows CI 결과
+
+코드 커밋 `8695e3f`의 [Windows CI #42](https://github.com/DongminKang0919/windows-desktop-notes/actions/runs/39778569427), 작업 `119823689260`의 실제 로그를 확인했다.
+
+- Release 빌드: 경고 0, 오류 0.
+- 자동 검사 **141개 PASS**. 기존 137개와 위 폐기 경합 4개를 포함한다. `dotnet test`가 아닌 실행형 하네스로 수행했다.
+- 격리 중단 복구 **10건 PASS**: 저장 경계 8개와 고정 복구 ID 2개. 원본 보존·중복 정리 검사도 통과했다. 합성 시험 자식 프로세스만 중단한다.
+- 복구 창 수명 smoke: 워밍업 10회 + 측정 5회, 유휴 1초. 완료 시 잔존 참조 0, 원본 불변, 마지막 저장 재시도 성공. Handles 435 / GDI 10 / USER 13으로 기준값과 같았다. 이 1초 유휴 값은 성능·장시간 안정성 판정에 사용하지 않는다.
+- 측정 JSONL과 실제 WPF 컨트롤 UI 렌더 artifact 업로드 성공. 렌더 이미지의 육안 검토와 실제 바탕화면 입력·표시 검증은 이번에 수행하지 않았다.
 
 ## 남은 확인
 

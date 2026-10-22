@@ -162,6 +162,7 @@ dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll
 | 구분 | 확인 내용 |
 | --- | --- |
 | 0.9.12 작업공간 수명 | 비동기 읽기·저장 완료 후 폐기된 작업공간에 창·타이머·UI를 다시 만들지 않도록 보강. 로컬 Release 경고·오류 0. 로컬 하네스는 Windows 앱 제어 정책(0x800711C7) 차단으로 미검증. [검사와 한계](docs/results/DISPOSAL-12C.md) |
+| 0.9.12 Windows CI | 자동 **141개**(폐기 경합 4개 포함), 중단 복구 **10건**, 복구 창 수명 smoke·UI 렌더 통과. [코드 커밋 CI](https://github.com/DongminKang0919/windows-desktop-notes/actions/runs/39778569427) |
 | 0.9.11 로컬 빌드·검사 | Release 경고·오류 0, **138개**(자동 137개 + 실제 비표시 호스트 1개), 중단 복구 **10건**, 합성 메모 10개의 저장·숨김·복원 10회 통과. [종료 판단·저장 순서 검증](docs/results/SESSION-END-04I.md) |
 | 0.9.11 Windows CI | 자동 **137개**, 중단 복구 **10건**, 수명 smoke·UI 렌더 통과. [코드 커밋 CI](https://github.com/DongminKang0919/windows-desktop-notes/actions/runs/39776147837) |
 | 이전 0.9.8 복구 창 수명·대기 | 100회 반복 후 잔존 창·문서 참조 0개, 5분 대기 중 원본 파일 불변, 대기 후 저장 재시도 통과. [측정 수치와 한계](docs/results/RECOVERY-LIFETIME-12B.md) |
