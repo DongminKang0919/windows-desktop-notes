@@ -11,13 +11,18 @@ namespace WindowsMemo.Infrastructure;
 // Explicit local prototype testing only; hashes do not authenticate a publisher.
 internal sealed class LocalTestUpdateSource : IUpdateSource
 {
+    internal enum DownloadCheckpoint { ChunkWritten, BeforeCommit }
+    private readonly Action<DownloadCheckpoint>? _checkpoint;
     private readonly string _root;
     internal const long MaxPackageBytes = 256 * 1024 * 1024;
-    public LocalTestUpdateSource(string root)
+    public LocalTestUpdateSource(string root) : this(root, null) { }
+    // Instance-scoped test observation; production never installs a callback.
+    internal LocalTestUpdateSource(string root, Action<DownloadCheckpoint>? checkpoint)
     {
         if (!Path.IsPathFullyQualified(root) || root.StartsWith(@"\\") || root.StartsWith("//"))
             throw new ArgumentException("로컬 절대 폴더 경로를 지정하세요.", nameof(root));
         _root = Path.GetFullPath(root);
+        _checkpoint = checkpoint;
         CheckLinks(_root);
     }
     private static void CheckLinks(string path)
@@ -62,23 +67,62 @@ internal sealed class LocalTestUpdateSource : IUpdateSource
     public async Task DownloadReleaseEntry(IVelopackLogger logger, VelopackAsset releaseEntry,
         string localFile, Action<int> progress, CancellationToken cancelToken = default)
     {
+        cancelToken.ThrowIfCancellationRequested();
         Validate(releaseEntry);
+        string destination = DestinationPath(localFile); // provided by Velopack, never by the feed
         using var source = File.OpenRead(FilePath(releaseEntry.FileName));
         if (source.Length != releaseEntry.Size) throw new InvalidDataException("업데이트 크기가 일치하지 않습니다.");
-        using var target = File.Create(localFile); // destination is provided by Velopack, never the feed
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        var buffer = new byte[81920];
-        long total = 0;
-        int read;
-        while ((read = await source.ReadAsync(buffer, cancelToken)) > 0)
+        string temporary = Path.Combine(Path.GetDirectoryName(destination)!, $".windowsmemo-download-{Guid.NewGuid():N}.tmp");
+        bool ownsTemporary = false;
+        try
         {
-            total += read;
-            if (total > releaseEntry.Size) throw new InvalidDataException("업데이트 크기가 초과되었습니다.");
-            hash.AppendData(buffer, 0, read);
-            await target.WriteAsync(buffer.AsMemory(0, read), cancelToken);
+            using (var target = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                81920, FileOptions.Asynchronous))
+            {
+                ownsTemporary = true;
+                using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                var buffer = new byte[81920];
+                long total = 0;
+                int read;
+                while ((read = await source.ReadAsync(buffer, cancelToken)) > 0)
+                {
+                    total += read;
+                    if (total > releaseEntry.Size) throw new InvalidDataException("업데이트 크기가 초과되었습니다.");
+                    hash.AppendData(buffer, 0, read);
+                    await target.WriteAsync(buffer.AsMemory(0, read), cancelToken);
+                    _checkpoint?.Invoke(DownloadCheckpoint.ChunkWritten);
+                }
+                if (total != releaseEntry.Size || !Convert.ToHexString(hash.GetHashAndReset()).Equals(releaseEntry.SHA256, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("업데이트 해시가 일치하지 않습니다.");
+                await target.FlushAsync(cancelToken);
+            }
+            _checkpoint?.Invoke(DownloadCheckpoint.BeforeCommit);
+            _ = DestinationPath(destination); // Recheck links immediately before publishing the cache.
+            FileNoteRepository.CheckLink(temporary);
+            cancelToken.ThrowIfCancellationRequested();
+            File.Move(temporary, destination, overwrite: true); // Same directory; never truncate the old cache.
+            ownsTemporary = false;
+            progress?.Invoke(100);
         }
-        if (total != releaseEntry.Size || !Convert.ToHexString(hash.GetHashAndReset()).Equals(releaseEntry.SHA256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("업데이트 해시가 일치하지 않습니다.");
-        progress?.Invoke(100);
+        finally
+        {
+            if (ownsTemporary)
+            {
+                FileNoteRepository.CheckRoot(temporary);
+                File.Delete(temporary); // Only this call's staging file, never the existing cache or feed.
+            }
+        }
+    }
+    private string DestinationPath(string path)
+    {
+        if (!Path.IsPathFullyQualified(path) || path.StartsWith(@"\\") || path.StartsWith("//")
+            || Path.GetFileName(path).IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            throw new InvalidDataException("로컬 캐시 파일 경로를 지정하세요.");
+        string destination = Path.GetFullPath(path);
+        if (destination.Equals(_root, StringComparison.OrdinalIgnoreCase)
+            || destination.StartsWith(_root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("업데이트 원본 폴더에는 다운로드할 수 없습니다.");
+        FileNoteRepository.CheckRoot(destination);
+        return destination;
     }
 }

@@ -4,7 +4,7 @@
 
 ## ZIP 패키지 만들기
 
-프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정에서 읽으며, 현재 앱 버전은 0.9.8입니다.
+프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정 [Directory.Build.props](../Directory.Build.props)에서 읽습니다.
 
 ```powershell
 .\scripts\package.ps1
@@ -28,7 +28,7 @@ ZIP 전체를 풀고 `WindowsMemo.exe`를 실행합니다. **.NET 10 Desktop Run
 
 ZIP 검증 후 Velopack으로 설치 EXE, full 업데이트 패키지와 피드를 `artifacts/package-GUID/installer`에 만듭니다. 설치 루트는 `%LOCALAPPDATA%\WindowsMemoApp`, 메모는 기존 `%LOCALAPPDATA%\WindowsMemo\Notes`로 분리합니다. .NET 10 Desktop Runtime x64가 없으면 설치기가 다운로드하도록 설정했습니다. 설치기는 완료 후 앱을 실행합니다.
 
-`scripts/verify-installer.ps1 -ReleaseDirectory <폴더> -ExpectedVersion 0.9.8`으로 파일·피드·payload 해시를 검사하고, `scripts/test-installer.ps1 -ReleaseDirectory <폴더>`로 변조 거부를 확인합니다. [수동 installer CI](../.github/workflows/installer.yml)는 artifact만 생성합니다. **서명되지 않은 prototype이며 실제 설치·제거·버전 간 업데이트 검증은 남아 있습니다.** 기존 0.7.0 산출물은 [검증 기록](results/INSTALLER-10B1.md)을 참고해 주세요.
+`scripts/verify-installer.ps1 -ReleaseDirectory <폴더> -ExpectedVersion <생성한 패키지 버전>`으로 파일·피드·payload 해시를 검사하고, `scripts/test-installer.ps1 -ReleaseDirectory <폴더>`로 변조 거부를 확인합니다. [수동 installer CI](../.github/workflows/installer.yml)는 artifact만 생성합니다. **서명되지 않은 prototype이며 실제 설치·제거·버전 간 업데이트 검증은 남아 있습니다.** 기존 0.7.0 산출물은 [검증 기록](results/INSTALLER-10B1.md)을 참고해 주세요.
 
 ## 로컬 시험 업데이트
 
@@ -41,3 +41,5 @@ ZIP 검증 후 Velopack으로 설치 EXE, full 업데이트 패키지와 피드�
 트레이의 **업데이트 확인 (로컬 시험)**으로 다운로드하고, **저장 후 업데이트**를 선택해 확인하면 모든 메모를 저장한 뒤 재시작합니다. 저장 또는 적용 요청에 실패하면 편집기를 유지합니다. 다운로드만으로 적용하거나 앱 시작 때 자동 적용하지 않습니다. 일반 실행·로그인 실행에서는 시험 메뉴가 없으며 ZIP·진단 모드의 업데이트 시험은 지원하지 않습니다. 시험 폴더는 실행 인수로만 지정하며 로그인 옵션에 저장하지 않습니다.
 
 서명되지 않은 로컬 시험용입니다. 원격 주소·다른 제품·시험판·delta 패키지는 받지 않습니다. 피드 1MiB·100항목, 패키지 256MiB 제한과 경로·크기·SHA256 검사를 적용합니다. 해시는 게시자 인증을 대신하지 않습니다. 공개 자동 업데이트와 설치본 간 데이터 보존 검증은 후속입니다. [구현·검증 기록](results/UPDATE-10B2A.md).
+
+0.9.14부터 다운로드는 캐시 폴더의 별도 임시 파일에 작성하고 검증 완료 후 대상 파일을 교체합니다. 검증 실패·취소·대상 잠금 시 기존 캐시를 비우지 않으며 일반 실패 경로의 임시 파일을 정리합니다. 피드 원본 폴더나 그 하위는 캐시 대상으로 사용할 수 없습니다. 프로세스 강제 중단 시 남은 다운로드 임시 파일의 자동 정리는 구현하지 않았습니다. [캐시 보존 검증과 한계](results/UPDATE-CACHE-10B2C.md).
