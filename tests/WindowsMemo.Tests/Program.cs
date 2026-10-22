@@ -134,6 +134,7 @@ internal static class Program
             WorkspaceDisposalTests.Run(Check);
             StartupTests.Run(Check);
             UpdateTests.Run(Check);
+            UpdateDownloadTests.Run(Check);
             UpdatePackageTests.Run(Check);
             NoteDesignTests.Run(Check);
             if (args.Contains("--render-ui")) NoteDesignTests.RenderPreviews();

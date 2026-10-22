@@ -66,15 +66,16 @@ internal static class UpdateTests
         });
         string root = Path.Combine(AppContext.BaseDirectory, "update-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        string feedPath = Path.Combine(root, "releases.win.json");
+        string feedRoot = Path.Combine(root, "feed"); Directory.CreateDirectory(feedRoot);
+        string feedPath = Path.Combine(feedRoot, "releases.win.json");
         string name = "WindowsMemoApp-0.8.0-full.nupkg";
         byte[] content = [1, 2, 3, 4];
         string sha = Convert.ToHexString(SHA256.HashData(content));
         void Feed(string file = "WindowsMemoApp-0.8.0-full.nupkg", string id = "WindowsMemoApp",
             string version = "0.8.0", long size = 4, string? hash = null) => File.WriteAllText(feedPath,
                 JsonSerializer.Serialize(new { Assets = new[] { new { PackageId = id, Version = version, Type = "Full", FileName = file, SHA256 = hash ?? sha, Size = size } } }));
-        File.WriteAllBytes(Path.Combine(root, name), content); Feed();
-        var source = new LocalTestUpdateSource(root);
+        File.WriteAllBytes(Path.Combine(feedRoot, name), content); Feed();
+        var source = new LocalTestUpdateSource(feedRoot);
         Task<VelopackAssetFeed> Read() => source.GetReleaseFeed(null!, "WindowsMemoApp", "win");
         check("업데이트 소스: 정상 피드·해시 확인 후 복사", () =>
         {
@@ -97,11 +98,11 @@ internal static class UpdateTests
         {
             var asset = Read().GetAwaiter().GetResult().Assets.Single();
             string target = Path.Combine(root, "bad.partial");
-            File.WriteAllBytes(Path.Combine(root, name), [4, 3, 2, 1]);
+            File.WriteAllBytes(Path.Combine(feedRoot, name), [4, 3, 2, 1]);
             Throws(() => source.DownloadReleaseEntry(null!, asset, target, _ => { }).GetAwaiter().GetResult());
-            File.WriteAllBytes(Path.Combine(root, name), [1]);
+            File.WriteAllBytes(Path.Combine(feedRoot, name), [1]);
             Throws(() => source.DownloadReleaseEntry(null!, asset, target, _ => { }).GetAwaiter().GetResult());
-            File.WriteAllBytes(Path.Combine(root, name), content);
+            File.WriteAllBytes(Path.Combine(feedRoot, name), content);
             Throws(() => source.DownloadReleaseEntry(null!, asset, target, _ => { }, new CancellationToken(true)).GetAwaiter().GetResult());
         });
         check("업데이트 소스: 상대·원격 경로·과대 피드·잘못된 채널 거부", () =>

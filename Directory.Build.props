@@ -3,7 +3,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <Version>0.9.13</Version>
+    <Version>0.9.14</Version>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
