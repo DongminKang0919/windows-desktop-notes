@@ -128,6 +128,7 @@ internal static class Program
             PendingCursorTests.Run(Check);
             WorkspaceTests.Run(Check);
             PendingRecoveryUiTests.Run(Check);
+            PreviewSchedulingTests.Run(Check);
             StartupTests.Run(Check);
             UpdateTests.Run(Check);
             UpdatePackageTests.Run(Check);
