@@ -245,17 +245,26 @@ internal static class StorageTests
             var repo = Repository("autosave");
             using var view = new NoteView();
             using var saves = new AutosaveCoordinator(view, repo, () => new NoteBounds(48,64,420,480), DateTimeOffset.UtcNow.AddMinutes(-1));
+            Assert(!saves.IsScheduled);
             view.InsertPlainText("old");
+            Assert(saves.IsScheduled);
             var first = saves.FlushAsync();
             view.TextEditor.SelectAll();view.InsertPlainText("new");
             Assert(Wait(first)); Assert(Text(repo.Load(Validate, out _)!) == "new");
+            Assert(!saves.IsScheduled);
             view.TextEditor.SelectAll();view.ApplyColor(Brushes.RoyalBlue);
             Assert(Wait(saves.FlushAsync()));
             var doc = RtfDocumentCodec.Load(repo.Load(Validate, out _)!.Rtf);
             Assert(new TextRange(doc.ContentStart, doc.ContentEnd.GetPositionAtOffset(-1)!).GetPropertyValue(TextElement.ForegroundProperty) is SolidColorBrush brush && brush.Color == Colors.RoyalBlue);
             using (var held = new FileStream(repo.PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-            { view.TextEditor.SelectAll();view.InsertPlainText("retry");Assert(!Wait(saves.FlushAsync())); }
-            Assert(Wait(saves.FlushAsync()));Assert(Text(repo.Load(Validate, out _)!) == "retry");
+            {
+                view.TextEditor.SelectAll();view.InsertPlainText("retry");Assert(!Wait(saves.FlushAsync()));
+                view.InsertPlainText(" latest");
+                Assert(((System.Windows.Controls.Button)view.FindName("SaveButton")).Visibility == System.Windows.Visibility.Visible);
+                Assert(saves.IsScheduled);
+            }
+            Assert(Wait(saves.FlushAsync()));Assert(Text(repo.Load(Validate, out _)!) == "retry latest");
+            Assert(!saves.IsScheduled && ((System.Windows.Controls.Button)view.FindName("SaveButton")).Visibility == System.Windows.Visibility.Collapsed);
         });
     }
     private static bool Wait(Task<bool> task)

@@ -26,6 +26,8 @@ public sealed class DesktopNoteHost : IDisposable
     private double _scale = 1;
     private bool _visible, _opened, _disposed, _checking, _checkQueued, _closingFallback;
     private uint _taskbarCreated;
+    private (int Width, int Height, int Radius)? _regionShape;
+    private NoteBounds? _publishedBounds;
     public nint Handle => _source is { IsDisposed: false } ? _source.Handle : 0;
     internal bool HasFallback => _fallback is not null;
     internal int RecoveryAttempts { get; private set; }
@@ -316,12 +318,25 @@ public sealed class DesktopNoteHost : IDisposable
         if (!NativeMethods.IsWindow(_parent) || !OwnsSurface()) throw new Win32Exception("바탕화면 창이 더 이상 유효하지 않습니다.");
         var origin = ParentOrigin();
         int height = _view.IsCollapsed ? (int)(NoteTheme.CollapsedHeight * _scale) : _bounds.Height;
-        if (!NativeMethods.SetWindowPos(Handle, 0, _bounds.X - origin.X, _bounds.Y - origin.Y, _bounds.Width, height, NativeMethods.SwpNoActivate))
+        if (!NativeMethods.SetWindowPos(Handle, 0, _bounds.X - origin.X, _bounds.Y - origin.Y, _bounds.Width, height, NativeMethods.SwpNoActivate | NativeMethods.SwpNoZOrder))
             throw new Win32Exception(Marshal.GetLastWin32Error());
         // A child HWND has no DWM frame; clip it to the same modest paper radius.
-        nint region = NativeMethods.CreateRoundRectRgn(0, 0, _bounds.Width + 1, height + 1, (int)(10 * _scale), (int)(10 * _scale));
-        if (region != 0 && NativeMethods.SetWindowRgn(Handle, region, true) == 0) NativeMethods.DeleteObject(region);
-        BoundsChanged?.Invoke(this, EventArgs.Empty);
+        var shape = (_bounds.Width, height, (int)(10 * _scale));
+        if (_regionShape != shape)
+        {
+            nint region = NativeMethods.CreateRoundRectRgn(0, 0, _bounds.Width + 1, height + 1, shape.Item3, shape.Item3);
+            if (region != 0)
+            {
+                if (NativeMethods.SetWindowRgn(Handle, region, true) == 0) NativeMethods.DeleteObject(region);
+                else _regionShape = shape;
+            }
+        }
+        var savedBounds = CaptureBounds();
+        if (_publishedBounds != savedBounds)
+        {
+            _publishedBounds = savedBounds;
+            BoundsChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     private static double GetScale(nint hwnd) => Math.Max(96, NativeMethods.GetDpiForWindow(hwnd)) / 96.0;
@@ -344,6 +359,7 @@ public sealed class DesktopNoteHost : IDisposable
             _source.Dispose();
         }
         _source = null;
+        _regionShape = null;
     }
 
     public void Dispose()

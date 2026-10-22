@@ -67,6 +67,16 @@ internal static class RecoveryTests
             Assert(Rtf(view).SequenceEqual(before));
             Assert(view.InsertPlainText("계속 편집"));
         });
+        check("바탕화면 레이아웃 재확인: 동일 위치·크기에서 저장 변경 미발행", () =>
+        {
+            using var parent = ParentSurface(); using var view = new NoteView();
+            using var host = new DesktopNoteHost(view, () => parent.Handle, watchChanges: false);
+            host.Open(visible: false);
+            int changed = 0; host.BoundsChanged += (_, _) => changed++;
+            for (int i = 0; i < 20; i++) host.CheckConnection(refreshLayout: true);
+            view.SetPaper("Sage"); view.SetCollapsed(true); view.SetCollapsed(false);
+            Assert(changed == 0);
+        });
         check("재시도 한도와 수동 재연결", () =>
         {
             using var firstParent = ParentSurface();

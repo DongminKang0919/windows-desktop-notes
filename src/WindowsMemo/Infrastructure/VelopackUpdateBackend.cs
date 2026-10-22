@@ -1,5 +1,4 @@
 using System.IO;
-using System.Security.Cryptography;
 using Velopack;
 using Velopack.Locators;
 using WindowsMemo.Services;
@@ -29,6 +28,7 @@ internal sealed class VelopackUpdateBackend : IUpdateBackend
         if (update.IsDowngrade || update.TargetFullRelease.Version <= _manager.CurrentVersion)
             throw new InvalidDataException("업데이트 버전이 현재 버전보다 높지 않습니다.");
         await _manager.DownloadUpdatesAsync(update, cancelToken: cancellationToken);
+        await Task.Run(() => UpdatePackageValidator.Validate(CachedPath(update.TargetFullRelease), update.TargetFullRelease), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         _prepared = update;
         return update.TargetFullRelease.Version.ToString();
@@ -36,12 +36,13 @@ internal sealed class VelopackUpdateBackend : IUpdateBackend
     public void Apply()
     {
         if (_prepared is null) throw new InvalidOperationException("다운로드한 업데이트가 없습니다.");
-        LocalTestUpdateSource.Validate(_prepared.TargetFullRelease);
-        string packages = VelopackLocator.Current.PackagesDir ?? throw new InvalidOperationException("설치 패키지 경로가 없습니다.");
-        using (var package = File.OpenRead(Path.Combine(packages, _prepared.TargetFullRelease.FileName)))
-            if (package.Length != _prepared.TargetFullRelease.Size
-                || !Convert.ToHexString(SHA256.HashData(package)).Equals(_prepared.TargetFullRelease.SHA256, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("다운로드한 업데이트가 변경되었습니다.");
+        UpdatePackageValidator.Validate(CachedPath(_prepared.TargetFullRelease), _prepared.TargetFullRelease);
         _manager.ApplyUpdatesAndRestart(_prepared.TargetFullRelease, ["--update-test-source", _root]);
+    }
+    private static string CachedPath(VelopackAsset asset)
+    {
+        LocalTestUpdateSource.Validate(asset);
+        string packages = VelopackLocator.Current.PackagesDir ?? throw new InvalidOperationException("설치 패키지 경로가 없습니다.");
+        return Path.Combine(packages, asset.FileName);
     }
 }
