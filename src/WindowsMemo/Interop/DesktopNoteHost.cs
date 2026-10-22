@@ -24,7 +24,7 @@ public sealed class DesktopNoteHost : IDisposable
     private PixelBounds _bounds;
     private NativeMethods.Rect _lastClient;
     private double _scale = 1;
-    private bool _visible, _opened, _disposed, _checking, _checkQueued, _closingFallback;
+    private bool _visible, _opened, _disposed, _checking, _checkQueued, _resumeQueued, _closingFallback;
     private uint _taskbarCreated;
     private (int Width, int Height, int Radius)? _regionShape;
     private NoteBounds? _publishedBounds;
@@ -146,19 +146,35 @@ public sealed class DesktopNoteHost : IDisposable
 
     private nint ObserverHook(nint hwnd, int message, nint wParam, nint lParam, ref bool handled)
     {
-        if (message is 0x007E or 0x001A or 0x0218 || (_taskbarCreated != 0 && message == _taskbarCreated))
-            QueueCheck(); // display/settings/power change, Explorer recreated
+        bool shellCreated = _taskbarCreated != 0 && message == _taskbarCreated;
+        bool resumed = message == 0x0218 && (wParam == 0x12 || wParam == 7); // automatic / user resume
+        if (message is 0x007E or 0x001A or 0x0218 || shellCreated)
+            QueueCheck(resumeRecovery: shellCreated || resumed);
+        if (resumed)
+        {
+            handled = true;
+            return 1; // WM_POWERBROADCAST: TRUE when processed; never dereference lParam.
+        }
         return 0;
     }
 
-    private void QueueCheck()
+    private void QueueCheck(bool resumeRecovery = false)
     {
-        if (_disposed || _checkQueued) return;
+        if (_disposed) return;
+        // A resume signal must survive coalescing behind an ordinary layout notification.
+        _resumeQueued |= resumeRecovery;
+        if (_checkQueued) return;
         _checkQueued = true;
         _view.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
         {
             _checkQueued = false;
-            if (!_disposed) CheckConnection(refreshLayout: true);
+            bool resume = _resumeQueued;
+            _resumeQueued = false;
+            if (_disposed) return;
+            // Only an explicit shell/resume signal re-arms an exhausted retry budget.
+            // Settings/battery changes cannot create an endless polling loop.
+            if (resume && RecoveryStopped) RetryConnection();
+            else CheckConnection(refreshLayout: true);
         }));
     }
 

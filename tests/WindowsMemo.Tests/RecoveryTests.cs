@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.IO;
 using System.Windows.Documents;
 using System.Windows.Interop;
@@ -119,6 +120,10 @@ internal static class RecoveryTests
             }
             finally { parent.Dispose(); }
         });
+        check("복구 중단 후 TaskbarCreated 수신: 제한 재시작과 본문·상태 보존", () =>
+            ResumeAfterNotification(power: false));
+        check("복구 중단 후 절전 복귀 수신: 대기 알림 병합과 제한 재시작", () =>
+            ResumeAfterNotification(power: true));
         check("복구 호스트 및 편집기 참조 해제", () =>
         {
             var weak = DisposedHostReferences();
@@ -127,6 +132,83 @@ internal static class RecoveryTests
             Assert(weak.All(reference => !reference.IsAlive));
         });
     }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern nint SendMessage(nint hwnd, uint message, nint wParam, nint lParam);
+
+    private static void DrainMessages() => System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+        () => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+
+    private static void ResumeAfterNotification(bool power)
+    {
+        using var first = ParentSurface(); using var replacement = ParentSurface();
+        nint parent = first.Handle;
+        int lookups = 0;
+        using var view = new NoteView();
+        using var host = new DesktopNoteHost(view, () => { lookups++; return parent; }, watchChanges: true);
+        host.Open(visible: false);
+        view.InsertPlainText("늦은 복구에도 보존할 메모");
+        view.TextEditor.SelectAll(); view.ToggleBold(); view.ApplyColor(Brushes.RoyalBlue);
+        view.SetPaper("Peach"); view.SetCollapsed(true);
+        string before = Text(view); var bounds = host.CaptureBounds();
+        // Send only to this process's hidden observer; never broadcast to Explorer or other apps.
+        nint observer = FindObserver();
+        Assert(observer != 0);
+        first.Dispose(); parent = 0;
+        for (int i = 0; i < DesktopNoteHost.MaxRecoveryAttempts; i++) host.CheckConnection();
+        Assert(host.RecoveryStopped && host.HasFallback);
+        int stoppedLookups = lookups;
+        SendMessage(observer, 0x001A, 0, 0); // Settings alone must not restart a stopped retry loop.
+        SendMessage(observer, 0x0218, 0x0A, 0); // Battery/power status change is not resume.
+        DrainMessages();
+        Assert(host.RecoveryStopped && lookups == stoppedLookups);
+        // A real recovery signal arriving behind a queued settings check must not be lost.
+        SendMessage(observer, 0x001A, 0, 0);
+        uint message = power ? 0x0218u : NativeMethods.RegisterWindowMessage("TaskbarCreated");
+        for (int i = 0; i < 20; i++) SendMessage(observer, message, power ? 0x12 : 0, 0);
+        DrainMessages();
+        Assert(!host.RecoveryStopped && host.RecoveryAttempts == 1 && lookups == stoppedLookups + 1);
+        SendMessage(observer, message, power ? 7 : 0, 0);
+        DrainMessages();
+        Assert(host.RecoveryAttempts == 2 && lookups == stoppedLookups + 2);
+        // The new retry budget remains bounded even if the desktop still has not appeared.
+        for (int i = 0; i < 30; i++) host.CheckConnection();
+        Assert(host.RecoveryStopped && lookups == stoppedLookups + DesktopNoteHost.MaxRecoveryAttempts);
+        parent = replacement.Handle;
+        SendMessage(observer, message, power ? 7 : 0, 0);
+        DrainMessages();
+        Assert(host.Handle != 0 && !host.HasFallback && host.RecoveryAttempts == 0);
+        Assert(Text(view) == before);
+        Assert(view.Paper == "Peach" && view.IsCollapsed);
+        var range = new TextRange(view.TextEditor.Document.ContentStart, view.TextEditor.Document.ContentEnd.GetPositionAtOffset(-1)!);
+        Assert(range.GetPropertyValue(TextElement.FontWeightProperty).Equals(System.Windows.FontWeights.Bold));
+        Assert(range.GetPropertyValue(TextElement.ForegroundProperty) is SolidColorBrush brush && brush.Color == Colors.RoyalBlue);
+        Assert(host.CaptureBounds() == bounds);
+        // Disposal cancels the effect of an already queued notification.
+        SendMessage(observer, message, power ? 0x12 : 0, 0);
+        int beforeDispose = lookups;
+        host.Dispose(); DrainMessages();
+        Assert(host.Handle == 0 && !host.HasFallback && lookups == beforeDispose);
+    }
+
+    private static nint FindObserver()
+    {
+        nint result = 0;
+        NativeMethods.EnumWindows((hwnd, _) =>
+        {
+            NativeMethods.GetWindowThreadProcessId(hwnd, out uint process);
+            if (process == Environment.ProcessId && WindowTitle(hwnd) == "WindowsMemo.DisplayObserver")
+            { result = hwnd; return false; }
+            return true;
+        }, 0);
+        return result;
+    }
+    private static string WindowTitle(nint hwnd)
+    {
+        var text = new System.Text.StringBuilder(128); GetWindowText(hwnd, text, text.Capacity); return text.ToString();
+    }
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(nint hwnd, System.Text.StringBuilder text, int count);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static WeakReference[] DisposedHostReferences()
