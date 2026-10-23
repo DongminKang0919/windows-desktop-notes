@@ -2,7 +2,7 @@
 
 바탕화면에 붙여 두고 바로 적는 Windows 메모 앱입니다. 다른 프로그램을 사용할 때는 그 뒤에 놓이고, **Win+D로 바탕화면을 볼 때도 메모를 확인할 수 있도록** 구현했습니다.
 
-**0.9.15 prototype** · Windows 11 x64 · C# / .NET 10 / WPF
+**0.9.16 prototype** · Windows 11 x64 · C# / .NET 10 / WPF
 현재는 소스에서 빌드하는 개발 버전입니다. 공개 배포와 설치본 업데이트 검증은 진행 중입니다.
 
 [빠른 시작](#빠른-시작) · [사용 방법](#사용-방법) · [저장과 복구](#저장과-복구) · [개발과 검증](#개발과-검증)
@@ -165,6 +165,7 @@ dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll
 
 | 구분 | 확인 내용 |
 | --- | --- |
+| 0.9.16 로컬 빌드 | 업데이트 패키지의 파일/폴더 충돌·예약 이름·디렉터리 항목 검사 보완, 회귀 검사 5개 추가. Release 경고·오류 0. 하네스 실행은 Windows 앱 제어 정책(0x800711C7)으로 차단되어 신규 검사 실행·원격 CI는 미검증. [변경과 검증 범위](docs/results/UPDATE-ARCHIVE-10B2D.md) |
 | 0.9.15 로컬 빌드·검사 | Release 경고·오류 0, **150개**(자동 149개 + 실제 비표시 호스트 1개) 통과. 배포 검증 스크립트는 실행 정책 차단으로 로컬 미실행, 정적 구문 검사 통과. [아카이브 검증 기록](docs/results/ARCHIVE-10A2.md) |
 | 0.9.15 Windows CI | 합성 ZIP/설치 검증 **50개**, 기존 자동 **149개**·중단 복구 **10건**·수명 smoke·UI 렌더, 실제 ZIP 생성과 패키지 검사 **6개** 통과. [코드 커밋 CI](https://github.com/DongminKang0919/windows-desktop-notes/actions/runs/39788351101) |
 | 이전 기능 검증 | [업데이트 캐시 보존](docs/results/UPDATE-CACHE-10B2C.md), [목록 안내·화면 렌더](docs/results/LIST-FEEDBACK-07D.md), [폐기 후 비동기 완료](docs/results/DISPOSAL-12C.md), [세션 종료·저장 순서](docs/results/SESSION-END-04I.md). 버전별 로컬 실행 여부와 원격 CI 결과는 각 기록에 보관 |

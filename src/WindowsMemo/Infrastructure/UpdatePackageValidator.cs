@@ -22,22 +22,38 @@ internal static class UpdatePackageValidator
         stream.Position = 0;
         using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
         if (archive.Entries.Count > 512) throw new InvalidDataException("업데이트 파일 수가 너무 많습니다.");
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var paths = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         long expandedBytes = 0;
         foreach (var entry in archive.Entries)
         {
+            bool directory = entry.FullName.EndsWith('/');
             int unixType = (entry.ExternalAttributes >> 16) & 0xF000;
-            if (unixType is not (0 or 0x8000 or 0x4000) || (entry.ExternalAttributes & (int)FileAttributes.ReparsePoint) != 0)
+            bool directoryAttribute = (entry.ExternalAttributes & (int)FileAttributes.Directory) != 0;
+            if (unixType is not (0 or 0x8000 or 0x4000) || (entry.ExternalAttributes & (int)FileAttributes.ReparsePoint) != 0
+                || ((unixType == 0x4000 || directoryAttribute) && !directory)
+                || (unixType == 0x8000 && directory) || (directory && entry.Length != 0))
                 throw new InvalidDataException("링크 또는 특수 파일이 포함된 업데이트는 사용할 수 없습니다.");
-            string name = entry.FullName.TrimEnd('/');
+            // Remove only the directory marker, leaving repeated separators invalid.
+            string name = directory ? entry.FullName[..^1] : entry.FullName;
             if (name.Length == 0 || entry.FullName.Contains('\\') || entry.FullName.StartsWith('/')
                 || name.Split('/').Any(part => part.Length == 0 || part is "." or ".." || IsDeviceName(part)
                     || part.TrimEnd(' ', '.') != part || part.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-                || !names.Add(name))
+                || !paths.TryAdd(name, directory))
                 throw new InvalidDataException("잘못되거나 중복된 업데이트 경로입니다.");
             expandedBytes += entry.Length;
             if (entry.Length > LocalTestUpdateSource.MaxPackageBytes || expandedBytes > 512L * 1024 * 1024)
                 throw new InvalidDataException("업데이트 압축 해제 크기가 너무 큽니다.");
+        }
+        // Inspect all parents after collecting paths so entry order cannot hide conflicts.
+        foreach (string name in paths.Keys)
+        {
+            string parent = name;
+            for (int separator = parent.LastIndexOf('/'); separator >= 0; separator = parent.LastIndexOf('/'))
+            {
+                parent = parent[..separator];
+                if (paths.TryGetValue(parent, out bool directory) && !directory)
+                    throw new InvalidDataException("업데이트 파일과 폴더 경로가 충돌합니다.");
+            }
         }
         foreach (string required in new[] { "lib/app/WindowsMemo.exe", "lib/app/WindowsMemo.dll" })
             if (archive.GetEntry(required) is not { Length: > 0 }) throw new InvalidDataException("필수 앱 파일이 없습니다.");
@@ -46,10 +62,10 @@ internal static class UpdatePackageValidator
     }
     private static bool IsDeviceName(string part)
     {
-        string stem = part.Split('.')[0].ToUpperInvariant();
+        string stem = part.Split('.')[0].TrimEnd(' ').ToUpperInvariant();
         return stem is "CON" or "PRN" or "AUX" or "NUL"
             || (stem.Length == 4 && (stem.StartsWith("COM", StringComparison.Ordinal) || stem.StartsWith("LPT", StringComparison.Ordinal))
-                && stem[3] is >= '1' and <= '9');
+                && (stem[3] is >= '1' and <= '9' or '\u00B9' or '\u00B2' or '\u00B3'));
     }
     private static void CheckMetadata(ZipArchiveEntry? entry, VelopackAsset asset)
     {
