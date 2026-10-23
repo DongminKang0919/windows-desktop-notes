@@ -14,9 +14,13 @@
 
 Release 빌드와 검증 후 Windows x64 publish 결과를 `artifacts/package-GUID` 아래 ZIP·SHA256 파일로 만듭니다. 매번 별도 폴더를 사용하며 기존 패키지를 덮어쓰지 않습니다. ZIP에는 실행 파일, 런타임 설정, 시작 안내와 파일별 해시·버전·소스 상태 manifest만 포함합니다. 사용자 메모와 테스트 데이터는 포함하지 않습니다.
 
+0.9.15부터 패키징의 빌드·검사·publish 중간 출력도 같은 실행의 `build` 하위에 격리합니다. 기존 `src`/`tests`의 기본 빌드 출력을 사용하지 않습니다. 생성 안내에는 실제 저장 스키마 4와 이전 1/2/3 읽기 호환성을 표시합니다.
+
 ZIP 전체를 풀고 `WindowsMemo.exe`를 실행합니다. **.NET 10 Desktop Runtime x64가 필요**하며 런타임을 포함한 패키지는 아닙니다. 자동 실행 등록 후 폴더를 옮기면 다시 등록해야 합니다. 실제 압축 해제본의 UI 실행은 검토 대기입니다.
 
 `scripts/verify-package.ps1 -ZipPath <ZIP 경로>`로 구성과 해시를 확인하고, `scripts/test-package.ps1 -ZipPath <ZIP 경로>`로 변조·위험 경로 거부를 확인할 수 있습니다. 해시는 손상 확인용이며 게시자 서명을 대신하지 않습니다.
+
+ZIP과 설치 패키지는 공통 아카이브 검사로 디렉터리를 포함한 경로·Windows 예약 이름·끝 점/공백·대소문자/파일-폴더 충돌·링크/특수 파일 속성을 거부합니다. 항목은 총 1,000개·개별 16MiB·압축 해제 합계 256MiB 이하로 제한합니다. `scripts/test-archive-validation.ps1`은 실제 실행 파일을 사용하지 않는 합성 ZIP/설치 패키지를 검사하며 기본 Windows CI에 포함됩니다. [검사와 제한](results/ARCHIVE-10A2.md).
 
 [Build prototype ZIP](../.github/workflows/package.yml)은 GitHub Actions 수동 실행으로 다운로드용 ZIP과 체크섬을 14일 보관하도록 구성했습니다. GitHub Release 게시·설치·자동 업데이트는 수행하지 않습니다. 상세는 [패키징 검증 기록](results/PACKAGE-10A.md)을 참고해 주세요.
 

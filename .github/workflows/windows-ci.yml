@@ -35,6 +35,8 @@ jobs:
           global-json-file: global.json
       - name: Build Release
         run: dotnet build WindowsMemo.slnx --configuration Release --nologo -p:RestoreLockedMode=true
+      - name: Check synthetic ZIP and installer archives
+        run: ./scripts/test-archive-validation.ps1
       # Executable test harness; dotnet test does not run these checks.
       # --shell-probe requires a logged-in desktop and stays a local check.
       - name: Run automated checks
@@ -60,3 +62,18 @@ jobs:
           path: tests/WindowsMemo.Tests/bin/Release/net10.0-windows/ui-previews/*.png
           retention-days: 14
           if-no-files-found: error
+      - name: Verify isolated prototype ZIP generation
+        run: |
+          function Get-DefaultOutputSnapshot {
+            foreach ($path in @('src/WindowsMemo/bin/Release/net10.0-windows/WindowsMemo.dll', 'tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll')) {
+              $item = Get-Item -LiteralPath $path
+              "$($item.FullName):$($item.LastWriteTimeUtc.Ticks):$((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash)"
+            }
+          }
+          $before = @(Get-DefaultOutputSnapshot)
+          $results = @(./scripts/package.ps1 | ForEach-Object { if ($_ -is [string]) { Write-Host $_ } else { $_ } })
+          $package = @($results | Where-Object { $_.PSObject.Properties.Name -contains 'ChecksumFile' })
+          if ($package.Count -ne 1) { throw 'Expected one isolated ZIP result.' }
+          ./scripts/test-package.ps1 -ZipPath $package[0].Zip
+          if (Compare-Object $before @(Get-DefaultOutputSnapshot)) { throw 'Packaging changed the default build outputs.' }
+          Write-Host 'PASS default build outputs unchanged after isolated packaging'
