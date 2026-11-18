@@ -88,7 +88,7 @@ internal static class TemporaryFileTests
             Repository("invalid").Save(baseline with { UpdatedAtUtc = now.AddDays(-1) });
             string broken = Pending("invalid", baseline); File.WriteAllText(broken, "broken");
             string future = Pending("invalid", baseline);
-            byte[] plain = JsonSerializer.SerializeToUtf8Bytes(baseline with { SchemaVersion = 5 });
+            byte[] plain = JsonSerializer.SerializeToUtf8Bytes(baseline with { SchemaVersion = NoteRecord.CurrentSchema + 1 });
             try { File.WriteAllBytes(future, JsonSerializer.SerializeToUtf8Bytes(new { Version = 1, Protection = "DPAPI-CurrentUser", Ciphertext = ProtectedData.Protect(plain, null, DataProtectionScope.CurrentUser) })); }
             finally { CryptographicOperations.ZeroMemory(plain); }
             string oversized = Pending("invalid", baseline);

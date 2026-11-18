@@ -49,6 +49,9 @@ internal sealed class NoteWorkspace : IDisposable
     public event EventHandler? Changed;
     public event EventHandler? ListRequested;
     public event EventHandler? ArchiveListRequested;
+    public event EventHandler? SettingsRequested;
+    internal SettingsService Settings { get; }
+    internal void RequestSettings() { if (!_disposed) SettingsRequested?.Invoke(this, EventArgs.Empty); }
     public event EventHandler<string>? Notice;
     public IReadOnlyList<NoteListItem> Items => List(false);
     public IReadOnlyList<NoteListItem> TrashItems => List(true);
@@ -59,7 +62,7 @@ internal sealed class NoteWorkspace : IDisposable
         .Select(pair => new NoteListItem(pair.Key, pair.Value.Hidden, pair.Value.Error, pair.Value.Trashed, pair.Value.Archived, pair.Value.Title)).ToArray();
 
     public NoteWorkspace(string root, Func<NoteView, NoteBounds?, INoteSurface> createSurface)
-    { _root = root; _createSurface = createSurface; _dispatcher = Dispatcher.CurrentDispatcher; }
+    { _root = root; _createSurface = createSurface; _dispatcher = Dispatcher.CurrentDispatcher; Settings = new(root); }
 
     private async Task<(NoteRecord? Record, bool Recovered)> LoadAsync(Entry entry)
     {
@@ -69,7 +72,7 @@ internal sealed class NoteWorkspace : IDisposable
         {
             var record = entry.Repository.Load(value => _dispatcher.Invoke(() =>
             {
-                title = NoteTitleSummary.FromDocument(RtfDocumentCodec.Load(value.Rtf));
+                title = NoteTitleSummary.FromRecord(value);
             }), out bool recovered);
             return (record, recovered);
         });
@@ -121,21 +124,24 @@ internal sealed class NoteWorkspace : IDisposable
     {
         var offset = (_entries.Count % 10) * 28;
         var session = new NoteSession(entry.Repository, record, (view, bounds) =>
-            _createSurface(view, bounds ?? new NoteBounds(48 + offset, 64 + offset, NoteTheme.Width, NoteTheme.Height)));
+            _createSurface(view, bounds ?? new NoteBounds(48 + offset, 64 + offset, Settings.Current.NoteWidth, Settings.Current.NoteHeight)), Settings.Current.DefaultPaper);
         session.View.NewRequested += OnNew;
         session.View.ListRequested += OnList;
         session.View.CloseRequested += OnHide;
         session.View.TrashRequested += OnTrash;
         session.View.ArchiveRequested += OnArchive;
         session.View.ArchiveListRequested += OnArchiveList;
+        session.View.SettingsRequested += (_, _) => RequestSettings();
         entry.Session = session;
         entry.Title = session.View.NoteTitle;
-        session.View.DocumentChanged += (_, _) =>
+        void RefreshEntryTitle(object? sender, EventArgs args)
         {
             if (entry.Title == session.View.NoteTitle) return;
             entry.Title = session.View.NoteTitle;
             Publish();
-        }; // NoteView.Dispose clears DocumentChanged when this session is hidden/disposed.
+        }
+        session.View.DocumentChanged += RefreshEntryTitle;
+        session.View.AppearanceChanged += RefreshEntryTitle; // NoteView.Dispose clears both subscriptions.
         entry.Hidden = false;
         entry.Error = null;
     }
@@ -218,7 +224,7 @@ internal sealed class NoteWorkspace : IDisposable
             // Re-read the source: the preview's mutable record is never trusted as save input.
             var verified = await Task.Run(() => new PendingNoteRecovery(_root).Read(preview.Token, preview.Fingerprint));
             if (_disposed) return PendingRecoveryResult.Failed(PendingRecoveryStatus.Busy);
-            string title = NoteTitleSummary.FromDocument(RtfDocumentCodec.Load(verified.Record.Rtf));
+            string title = NoteTitleSummary.FromRecord(verified.Record);
             Guid id = PendingNoteRecovery.CopyId(verified.Token, verified.Fingerprint);
             if (id == verified.Record.Id) return PendingRecoveryResult.Failed(PendingRecoveryStatus.ExistingCopyUnavailable);
             if (_entries.TryGetValue(id, out var existing))
@@ -240,7 +246,7 @@ internal sealed class NoteWorkspace : IDisposable
             failure = PendingRecoveryStatus.SaveFailed;
             var repository = new FileNoteRepository(_root, id);
             var now = DateTimeOffset.UtcNow;
-            var copy = verified.Record with { SchemaVersion = 4, Id = id, CreatedAtUtc = now, UpdatedAtUtc = now,
+            var copy = verified.Record with { SchemaVersion = NoteRecord.CurrentSchema, Id = id, CreatedAtUtc = now, UpdatedAtUtc = now,
                 Hidden = true, Archived = false, DeletedAtUtc = null, Collapsed = false };
             await Task.Run(() => repository.SaveNew(copy));
             // Durable hidden copy first: failure cannot replace an existing note or lose the source.
@@ -283,7 +289,7 @@ internal sealed class NoteWorkspace : IDisposable
                 if (loaded.Record is null) return false;
                 var now = DateTimeOffset.UtcNow;
                 await Task.Run(() => entry.Repository.Save(loaded.Record with
-                    { SchemaVersion = 4, Hidden = true, Archived = false, DeletedAtUtc = now, UpdatedAtUtc = now }));
+                    { SchemaVersion = NoteRecord.CurrentSchema, Hidden = true, Archived = false, DeletedAtUtc = now, UpdatedAtUtc = now }));
             }
             if (_disposed) return false;
             entry.Trashed = true; entry.Hidden = true; entry.Archived = false; entry.Error = null;
@@ -302,7 +308,7 @@ internal sealed class NoteWorkspace : IDisposable
             if (_disposed) return false;
             if (loaded.Record?.DeletedAtUtc is null) return false;
             await Task.Run(() => entry.Repository.Save(loaded.Record with
-                { SchemaVersion = 4, Hidden = true, DeletedAtUtc = null, UpdatedAtUtc = DateTimeOffset.UtcNow }));
+                { SchemaVersion = NoteRecord.CurrentSchema, Hidden = true, DeletedAtUtc = null, UpdatedAtUtc = DateTimeOffset.UtcNow }));
             // Restore to the normal list, hidden; opening is a separate action.
             if (_disposed) return false;
             entry.Trashed = false; entry.Hidden = true; entry.Error = null;
@@ -350,7 +356,7 @@ internal sealed class NoteWorkspace : IDisposable
                 if (_disposed) return false;
                 if (loaded.Record is null) return false;
                 await Task.Run(() => entry.Repository.Save(loaded.Record with
-                    { SchemaVersion = 4, Hidden = true, Archived = true, UpdatedAtUtc = DateTimeOffset.UtcNow }));
+                    { SchemaVersion = NoteRecord.CurrentSchema, Hidden = true, Archived = true, UpdatedAtUtc = DateTimeOffset.UtcNow }));
             }
             if (_disposed) return false;
             entry.Archived = true; entry.Hidden = true; entry.Error = null; _lastArchived = id;
@@ -369,7 +375,7 @@ internal sealed class NoteWorkspace : IDisposable
             if (_disposed) return false;
             if (loaded.Record is null) return false;
             await Task.Run(() => entry.Repository.Save(loaded.Record with
-                { SchemaVersion = 4, Archived = false, Hidden = true, UpdatedAtUtc = DateTimeOffset.UtcNow }));
+                { SchemaVersion = NoteRecord.CurrentSchema, Archived = false, Hidden = true, UpdatedAtUtc = DateTimeOffset.UtcNow }));
             if (_disposed) return false;
             entry.Archived = false; entry.Hidden = true; entry.Error = null;
             return true;
@@ -418,6 +424,6 @@ internal sealed class NoteWorkspace : IDisposable
         _disposed = true;
         foreach (var entry in _entries.Values) entry.Session?.Dispose();
         _entries.Clear();
-        Changed = null; ListRequested = null; ArchiveListRequested = null; Notice = null;
+        Changed = null; ListRequested = null; ArchiveListRequested = null; SettingsRequested = null; Notice = null;
     }
 }

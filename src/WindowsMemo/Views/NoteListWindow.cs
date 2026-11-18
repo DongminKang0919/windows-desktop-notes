@@ -42,6 +42,13 @@ internal sealed class NoteListWindow : Window
         foreach (var height in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto })
             panel.RowDefinitions.Add(new RowDefinition { Height = height });
         panel.Children.Add(new TextBlock { Text = trash ? "휴지통" : archive ? "보관함" : "메모 목록", FontSize = NoteTheme.TitleSize, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 10) });
+        if (!trash && !archive)
+        {
+            var settings = new Button { Content = "설정", Height = 28, MinWidth = 56, FontSize = NoteTheme.MetaSize,
+                Padding = new Thickness(8, 2, 8, 2), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top };
+            settings.Click += (_, _) => { if (!_closed) _workspace.RequestSettings(); };
+            panel.Children.Add(settings);
+        }
         _help = new TextBlock
         {
             Text = trash ? "복원하면 숨김 상태로 메모 목록에 돌아갑니다. 영구 삭제는 되돌릴 수 없습니다. 자동으로 비우지 않습니다."

@@ -1,5 +1,15 @@
 # 패키징·설치·로컬 시험 업데이트
 
+## 개발 중 고정 실행과 친구용 배포 방향
+
+개발 중에는 프로젝트 최상위 `메모 실행.cmd`를 사용한다. 앱이 꺼져 있으면 현재 소스를 기본 Release 경로에 빌드하고 실행한다. `--build-only`는 빌드만 한다. 앱이 실행 중이면 기존 목록을 열고, 새 코드를 사용하려면 저장 후 종료하고 다시 실행한다. GUID가 붙은 artifacts 폴더는 시험·패키징 출력으로 유지하며 일상 실행 경로로 안내하지 않는다.
+
+비개발자에게는 앱 bin 폴더의 EXE 하나 대신 설치용 Setup.exe와 짧은 사용 안내를 전달한다. 설치 후 시작 메뉴·바탕화면 바로가기로 접근하게 하고, **추후 GitHub Releases를 설치 파일·업데이트 패키지/피드의 배포 경로로 적용한다.** 2026-11-18 사용자 요청에 따른 후속 계획이며 구체적인 순서와 완료 조건은 [릴리스 계획](RELEASES.md#확정된-후속-계획-github-releases-인터넷-업데이트-wm-010c)과 WM-010C에서 관리한다. Velopack은 GithubSource를 지원하지만 현재 앱은 명시적인 로컬 시험 소스만 사용한다. **GitHub Releases를 쓰는 인터넷 업데이트는 아직 구현하지 않았다.**
+
+인터넷 업데이트의 후속 범위는 배포 저장소/접근 방식 확정, 신뢰할 수 있는 릴리스·패키지 검증, 새 버전 확인/다운로드/저장 후 적용, 실제 설치본 두 버전 간 메모·설정 보존 검증이다. 사용자 계정 로그인은 필수 조건이 아니다. 비공개 소스와 별도로 공개 배포 파일 전용 저장소를 둘 수도 있으며 개발자 GitHub 토큰을 앱에 넣지 않는다. 설치 패키지와 코드 서명·OS 신뢰 검증은 별도이며 설치 EXE만으로 Smart App Control 차단이 해결된다고 안내하지 않는다.
+
+참고: [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases), [Velopack 업데이트 소스](https://docs.velopack.io/integrating/update-sources), [설치기](https://docs.velopack.io/packaging/installer).
+
 [프로젝트 소개와 빠른 시작](../README.md)으로 돌아갑니다. 공개 배포·설치본 간 업데이트 검증은 아직 완료하지 않았습니다.
 
 ## ZIP 패키지 만들기

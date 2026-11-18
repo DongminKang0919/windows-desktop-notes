@@ -17,6 +17,8 @@ public partial class NoteView : UserControl, IDisposable
     private MenuItem? _collapseItem;
     public string Paper { get; private set; } = "Butter";
     public bool IsCollapsed { get; private set; }
+    public string CustomTitle { get; private set; } = "";
+    private NoteTitleWindow? _titleWindow;
     public static readonly DependencyProperty NoteTitleProperty = DependencyProperty.Register(nameof(NoteTitle), typeof(string), typeof(NoteView), new PropertyMetadata("메모"));
     public string NoteTitle { get => (string)GetValue(NoteTitleProperty); private set => SetValue(NoteTitleProperty, value); }
     public event EventHandler? AppearanceChanged;
@@ -29,6 +31,7 @@ public partial class NoteView : UserControl, IDisposable
     public event EventHandler? TrashRequested;
     public event EventHandler? ListRequested;
     public event EventHandler? ReconnectRequested;
+    public event EventHandler? SettingsRequested;
     public event EventHandler<Vector>? MoveRequested;
     public event EventHandler<Vector>? ResizeRequested;
     public RichTextBox TextEditor => Editor;
@@ -166,10 +169,33 @@ public partial class NoteView : UserControl, IDisposable
         AppearanceChanged?.Invoke(this, EventArgs.Empty);
     }
     public void RefreshTitle() => RefreshTitle(new TextRange(Editor.Document.ContentStart, Editor.Document.ContentEnd).Text);
+    public void SetCustomTitle(string title)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(title);
+        string value = title.Trim();
+        if (!Services.NoteTitleSummary.IsValidCustomTitle(value)) throw new ArgumentException("제목은 줄바꿈 없이 80자 이내로 입력하세요.", nameof(title));
+        if (CustomTitle == value) return;
+        CustomTitle = value;
+        RefreshTitle();
+        AppearanceChanged?.Invoke(this, EventArgs.Empty);
+    }
+    private void Title_OnClick(object sender, RoutedEventArgs e) => EditTitle();
+    private void EditTitle()
+    {
+        if (_disposed) return;
+        if (_titleWindow is not null) { _titleWindow.Activate(); return; }
+        var dialog = new NoteTitleWindow(CustomTitle);
+        var owner = Window.GetWindow(this);
+        if (owner is not null) dialog.Owner = owner;
+        _titleWindow = dialog;
+        try { if (dialog.ShowDialog() == true && !_disposed) SetCustomTitle(dialog.Value); }
+        finally { _titleWindow = null; }
+    }
     private void RefreshTitle(string text)
     {
         _textLength = text.Length;
-        NoteTitle = Services.NoteTitleSummary.FromText(text);
+        NoteTitle = CustomTitle.Length > 0 ? CustomTitle : Services.NoteTitleSummary.FromText(text);
         Placeholder.Visibility = text.AsSpan().Trim().IsEmpty ? Visibility.Visible : Visibility.Collapsed;
     }
     private void Header_OnMouseDown(object sender, MouseButtonEventArgs e)
@@ -182,6 +208,7 @@ public partial class NoteView : UserControl, IDisposable
     }
     private void OnViewKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.F2) { EditTitle(); e.Handled = true; }
         if (e.SystemKey == Key.M && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt)) { OpenMenu(); e.Handled = true; }
     }
     private void BuildMenu()
@@ -194,6 +221,8 @@ public partial class NoteView : UserControl, IDisposable
             item.Click += (_, _) => action(); return item;
         }
         menu.Items.Add(Item("새 메모", () => NewRequested?.Invoke(this, EventArgs.Empty), "+"));
+        menu.Items.Add(Item("제목 변경… (F2)", EditTitle, "✎"));
+        menu.Items.Add(Item("설정…", () => SettingsRequested?.Invoke(this, EventArgs.Empty), "⚙"));
         menu.Items.Add(Item("체크리스트 추가 / 제거", ToggleChecklist, "☐"));
         menu.Items.Add(Item("완료 체크 / 해제 (Ctrl+Enter)", ToggleChecklistDone, "☑"));
         var colors = new MenuItem { Header = "종이색", MinHeight = NoteTheme.ToolSize };
@@ -301,6 +330,7 @@ public partial class NoteView : UserControl, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _titleWindow?.Close(); _titleWindow = null;
         DataObject.RemovePastingHandler(Editor, OnPasting);
         PreviewKeyDown -= OnViewKeyDown;
         if (MoreButton.ContextMenu is { } menu) { menu.IsOpen = false; menu.Items.Clear(); MoreButton.ContextMenu = null; }
@@ -315,6 +345,7 @@ public partial class NoteView : UserControl, IDisposable
         TrashRequested = null;
         ListRequested = null;
         ReconnectRequested = null;
+        SettingsRequested = null;
         MoveRequested = null;
         ResizeRequested = null;
     }

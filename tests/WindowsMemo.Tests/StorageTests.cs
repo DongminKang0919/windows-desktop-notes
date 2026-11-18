@@ -136,7 +136,7 @@ internal static class StorageTests
         {
             var repo = Repository("future-schema"); repo.Save(Record("old-backup")); repo.Save(Record("current"));
             byte[] backup = File.ReadAllBytes(repo.BackupPath);
-            byte[] cipher = ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(Record("future") with { SchemaVersion = 5 }), null, DataProtectionScope.CurrentUser);
+            byte[] cipher = ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(Record("future") with { SchemaVersion = NoteRecord.CurrentSchema + 1 }), null, DataProtectionScope.CurrentUser);
             File.WriteAllText(repo.PrimaryPath, JsonSerializer.Serialize(new { Version = 1, Protection = "DPAPI-CurrentUser", Ciphertext = cipher }));
             byte[] primary = File.ReadAllBytes(repo.PrimaryPath);
             Throws(() => repo.Load(Validate, out _));

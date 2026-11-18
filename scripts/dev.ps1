@@ -5,6 +5,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+if ($Mode -in @('Desktop', 'Window')) {
+    $launcher = Join-Path $projectRoot '메모 실행.cmd'
+    if ($Mode -eq 'Window') { & $launcher --window } else { & $launcher }
+    if ($LASTEXITCODE -ne 0) { throw '실행 파일 준비에 실패했습니다. 위 오류를 확인하세요.' }
+    return
+}
 $sdkCommand = Get-Command dotnet -ErrorAction SilentlyContinue
 $sdkPath = if ($sdkCommand) { $sdkCommand.Source } else { Join-Path $env:ProgramFiles 'dotnet\dotnet.exe' }
 if (-not (Test-Path -LiteralPath $sdkPath)) {
