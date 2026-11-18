@@ -16,6 +16,8 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 1 && args[0] == "--desktop-report") { DesktopVisibilityProbe.Run(); return 0; }
+            if (args.Length == 1 && args[0] == "--settings-render") { SettingsTitleTests.Render(); return 0; }
             if (args.Length > 0 && args[0] == "--crash-probe")
             {
                 if (args.Length != 1) throw new ArgumentException("Use --crash-probe without extra arguments.");
@@ -133,6 +135,8 @@ internal static class Program
             SessionEndingTests.Run(Check);
             WorkspaceDisposalTests.Run(Check);
             StartupTests.Run(Check);
+            InstanceActivationTests.Run(Check);
+            SettingsTitleTests.Run(Check);
             UpdateTests.Run(Check);
             UpdateDownloadTests.Run(Check);
             UpdatePackageTests.Run(Check);

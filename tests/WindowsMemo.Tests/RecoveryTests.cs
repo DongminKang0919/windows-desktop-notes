@@ -78,6 +78,24 @@ internal static class RecoveryTests
             view.SetPaper("Sage"); view.SetCollapsed(true); view.SetCollapsed(false);
             Assert(changed == 0);
         });
+        check("바탕화면 가시성: 아이콘 표면 위 배치·레이아웃 복구·다른 앱 위 고정 금지", () =>
+        {
+            using var parent = ParentSurface();
+            using var desktopContent = new HwndSource(new HwndSourceParameters("Desktop content", 1600, 900)
+            { ParentWindow = parent.Handle, WindowStyle = NativeMethods.WsChild | NativeMethods.WsVisible });
+            using var view = new NoteView();
+            using var host = new DesktopNoteHost(view, () => parent.Handle, watchChanges: false);
+            host.Open(visible: false);
+            Assert(NativeMethods.FindWindowEx(parent.Handle, 0, null, null) == host.Handle);
+            Assert(NativeMethods.GetParent(host.Handle) == parent.Handle);
+            Assert((NativeMethods.GetWindowLongPtr(host.Handle, -20).ToInt64() & 8) == 0);
+            var bounds = host.CaptureBounds();
+            Assert(NativeMethods.SetWindowPos(desktopContent.Handle, 0, 0, 0, 1600, 900, NativeMethods.SwpNoActivate));
+            Assert(NativeMethods.FindWindowEx(parent.Handle, 0, null, null) == desktopContent.Handle);
+            host.CheckConnection(refreshLayout: true);
+            Assert(NativeMethods.FindWindowEx(parent.Handle, 0, null, null) == host.Handle);
+            Assert(host.CaptureBounds() == bounds);
+        });
         check("재시도 한도와 수동 재연결", () =>
         {
             using var firstParent = ParentSurface();

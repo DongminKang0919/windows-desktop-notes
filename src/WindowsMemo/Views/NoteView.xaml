@@ -35,7 +35,7 @@
     <Grid.RowDefinitions><RowDefinition Height="3"/><RowDefinition Height="44"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
     <Border Background="#10000000" CornerRadius="4,4,0,0"/>
     <Grid Grid.Row="1" Margin="10,0">
-     <Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/><ColumnDefinition Width="28"/></Grid.ColumnDefinitions>
+     <Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/><ColumnDefinition Width="28"/><ColumnDefinition Width="28"/></Grid.ColumnDefinitions>
      <Button Style="{StaticResource Tool}" Content="+" ToolTip="새 메모" AutomationProperties.Name="새 메모" Click="New_OnClick"/>
      <Thumb x:Name="MoveGrip" Grid.Column="1" Cursor="SizeAll" DragDelta="MoveGrip_OnDragDelta" PreviewMouseLeftButtonDown="Header_OnMouseDown">
       <Thumb.Template><ControlTemplate TargetType="Thumb">
@@ -54,7 +54,8 @@
        </Border>
       </ControlTemplate></Thumb.Template>
      </Thumb>
-     <Button x:Name="MoreButton" Grid.Column="2" Style="{StaticResource Tool}" Content="⋯" ToolTip="더보기 (Alt+M)" AutomationProperties.Name="더보기" Click="More_OnClick"/>
+     <Button Grid.Column="2" Style="{StaticResource Tool}" Content="✎" ToolTip="제목 변경 (F2)" AutomationProperties.Name="제목 변경" Click="Title_OnClick"/>
+     <Button x:Name="MoreButton" Grid.Column="3" Style="{StaticResource Tool}" Content="⋯" ToolTip="더보기 (Alt+M)" AutomationProperties.Name="더보기" Click="More_OnClick"/>
     </Grid>
     <Grid x:Name="Body" Grid.Row="2" Margin="{x:Static local:NoteTheme.ContentPadding}">
      <RichTextBox x:Name="Editor" Background="Transparent" BorderThickness="0" Padding="0"

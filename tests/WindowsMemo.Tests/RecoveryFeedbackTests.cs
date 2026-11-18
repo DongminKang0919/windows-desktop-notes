@@ -52,7 +52,7 @@ internal static class RecoveryFeedbackTests
             foreach (bool future in new[] { false, true })
             {
                 var fixture = Fixture(future ? "future" : "invalid"); using var workspace = Workspace(fixture.Folder); Wait(workspace.InitializeAsync());
-                var record = future ? fixture.Record with { SchemaVersion = 5 } : fixture.Record with { Rtf = [1, 2, 3] };
+                var record = future ? fixture.Record with { SchemaVersion = NoteRecord.CurrentSchema + 1 } : fixture.Record with { Rtf = [1, 2, 3] };
                 byte[] plain = JsonSerializer.SerializeToUtf8Bytes(record); byte[] cipher;
                 try { cipher = ProtectedData.Protect(plain, null, DataProtectionScope.CurrentUser); }
                 finally { CryptographicOperations.ZeroMemory(plain); }

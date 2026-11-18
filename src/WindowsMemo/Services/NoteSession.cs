@@ -17,15 +17,16 @@ internal sealed class NoteSession : IDisposable
     internal SaveState SaveState => _saves.State;
 
     public NoteSession(FileNoteRepository repository, NoteRecord? record,
-        Func<NoteView, NoteBounds?, INoteSurface> createSurface)
+        Func<NoteView, NoteBounds?, INoteSurface> createSurface, string defaultPaper = "Butter")
     {
         Id = repository.Id;
         View = new NoteView();
         try
         {
             if (record is not null) View.TextEditor.Document = RtfDocumentCodec.Load(record.Rtf);
+            View.SetCustomTitle(record?.Title ?? "");
             View.RefreshTitle();
-            View.SetPaper(record?.Paper ?? "Butter");
+            View.SetPaper(record?.Paper ?? defaultPaper);
             View.SetCollapsed(record?.Collapsed ?? false);
             _surface = createSurface(View, record?.Bounds);
             _saves = new AutosaveCoordinator(View, repository, _surface.CaptureBounds,

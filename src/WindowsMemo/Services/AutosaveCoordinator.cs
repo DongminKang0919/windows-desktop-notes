@@ -88,8 +88,8 @@ public sealed class AutosaveCoordinator : IDisposable
         try
         {
             _view.SetSaveStatus(_saveFailed ? "저장 재시도 중…" : "저장 중…", _saveFailed);
-            var record = new NoteRecord(4, _repository.Id, RtfDocumentCodec.Save(_view.TextEditor.Document),
-                _bounds(), _created, DateTimeOffset.UtcNow, _hidden(), _deleted(), _view.Paper, _view.IsCollapsed, _archived());
+            var record = new NoteRecord(NoteRecord.CurrentSchema, _repository.Id, RtfDocumentCodec.Save(_view.TextEditor.Document),
+                _bounds(), _created, DateTimeOffset.UtcNow, _hidden(), _deleted(), _view.Paper, _view.IsCollapsed, _archived(), _view.CustomTitle);
             await Task.Run(() => _repository.Save(record));
             _savedVersion = version;
             _saveFailed = false;

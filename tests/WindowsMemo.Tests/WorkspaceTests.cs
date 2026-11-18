@@ -274,7 +274,7 @@ internal static class WorkspaceTests
                 Assert(Wait(workspace.HideAsync(hiddenId)) && surfaces[0].Disposed);
                 Assert(workspace.Items.Single(item => item.Id == hiddenId).Hidden);
                 var record = Load("lifecycle", hiddenId);
-                Assert(record.Hidden && record.SchemaVersion == 4 && record.Bounds.X == -120);
+                Assert(record.Hidden && record.SchemaVersion == NoteRecord.CurrentSchema && record.Bounds.X == -120);
                 Assert(Wait(workspace.ShowAsync(hiddenId)));
                 var restored = surfaces[2].View!;
                 Assert(Text(restored) == "한글 메모");
@@ -373,7 +373,7 @@ internal static class WorkspaceTests
                 Assert(Wait(workspace.TrashAsync(id)) && surfaces[0].Disposed);
                 Assert(workspace.Items.Count == 0 && workspace.TrashItems.Single().Id == id);
                 var record = Load("trash", id);
-                Assert(record.SchemaVersion == 4 && record.Hidden && record.DeletedAtUtc is not null);
+                Assert(record.SchemaVersion == NoteRecord.CurrentSchema && record.Hidden && record.DeletedAtUtc is not null);
                 Assert(!Wait(workspace.ShowAsync(id)));
             }
             var restarted = new List<Surface>(); using var next = Workspace("trash", restarted);

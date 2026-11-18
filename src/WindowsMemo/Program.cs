@@ -22,10 +22,11 @@ internal static class Program
             return 2;
         }
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        using var activation = new InstanceActivation();
         using var instance = new Mutex(true, "Local\\WindowsMemo.Prototype", out bool isFirst);
         if (!isFirst)
         {
-            if (!startup) MessageBox.Show("메모 앱이 이미 실행 중입니다. 트레이의 Windows 메모에서 메모 목록을 여세요.", "Windows 메모");
+            if (!startup) activation.Signal();
             return 0;
         }
         try
@@ -36,6 +37,12 @@ internal static class Program
                 ? new WindowNoteSurface(view, bounds) : new DesktopNoteSurface(view, bounds));
             using var updater = updateTest ? new UpdaterService(new VelopackUpdateBackend(args[1])) : null;
             using var tray = new TrayController(app, workspace, diagnostic ? null : StartupService.ForCurrentBuild(), updater);
+            bool initialized = false, activationPending = false;
+            activation.Listen(() => app.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() =>
+            {
+                if (initialized) tray.ShowList();
+                else activationPending = true;
+            })));
             using var blockReason = new Interop.SessionEndBlockReason();
             using var sessionEnding = new SessionEndingCoordinator(() => workspace.SessionEndState,
                 workspace.FlushAllAsync, action => app.Dispatcher.BeginInvoke(DispatcherPriority.Background, action),
@@ -52,8 +59,10 @@ internal static class Program
                         for (int attempt = 0; attempt < 10 && WindowsMemo.Interop.DesktopNoteHost.FindDesktopView() == 0; attempt++)
                             await Task.Delay(1000);
                     } : null);
-                    if (workspace.Items.All(item => item.Hidden || item.Error is not null)
-                        && (!startup || workspace.Items.Any(item => item.Error is not null))) tray.ShowList();
+                    initialized = true;
+                    // Manual-launch preference does not suppress an explicit second-launch request
+                    // or errors that need a reachable normal window.
+                    if ((!startup && workspace.Settings.Current.ShowListOnLaunch) || activationPending || workspace.Items.Any(item => item.Error is not null)) tray.ShowList();
                     if (workspace.Items.Any(item => item.Error is not null)) MessageBox.Show("일부 메모를 복원하지 못했습니다. 파일은 보존되며 목록에서 다시 시도할 수 있습니다.", "메모 복원 확인");
                 }
                 catch (Exception ex) when (NoteWorkspace.IsNoteError(ex))

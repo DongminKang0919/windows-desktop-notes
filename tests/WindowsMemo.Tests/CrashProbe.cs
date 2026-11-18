@@ -59,14 +59,14 @@ internal static class CrashProbe
     private static NoteRecord Record(int version)
     {
         using var view = View(version);
-        return new(4, FileNoteRepository.NoteId, RtfDocumentCodec.Save(view.TextEditor.Document), Bounds(version),
+        return new(NoteRecord.CurrentSchema, FileNoteRepository.NoteId, RtfDocumentCodec.Save(view.TextEditor.Document), Bounds(version),
             new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero), DateTimeOffset.UtcNow, Paper: view.Paper, Collapsed: view.IsCollapsed);
     }
     private static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
     private static void Validate(NoteRecord record) => RtfDocumentCodec.Load(record.Rtf);
     private static void VerifyRecord(NoteRecord record, int version)
     {
-        Require(record.Id == FileNoteRepository.NoteId && record.SchemaVersion == 4 && record.Bounds == Bounds(version)
+        Require(record.Id == FileNoteRepository.NoteId && record.SchemaVersion == NoteRecord.CurrentSchema && record.Bounds == Bounds(version)
             && record.Paper == (version == 0 ? "Sage" : "Peach") && record.Collapsed == (version == 1)
             && !record.Hidden && !record.Archived && record.DeletedAtUtc is null, "Restored metadata mismatch.");
         var doc = RtfDocumentCodec.Load(record.Rtf);
@@ -227,7 +227,7 @@ internal static class CrashProbe
                 Console.WriteLine("CHECKPOINT " + option); Console.Out.Flush();
                 Thread.Sleep(TimeSpan.FromSeconds(45)); Environment.Exit(124);
             });
-            repository.SaveNew(preview.Record with { Id = copyId, SchemaVersion = 4, CreatedAtUtc = now, UpdatedAtUtc = now,
+            repository.SaveNew(preview.Record with { Id = copyId, SchemaVersion = NoteRecord.CurrentSchema, CreatedAtUtc = now, UpdatedAtUtc = now,
                 Hidden = true, Archived = false, DeletedAtUtc = null, Collapsed = false });
             throw new InvalidOperationException("Identity checkpoint was not reached.");
         }
