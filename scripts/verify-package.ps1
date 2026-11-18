@@ -14,19 +14,12 @@ $hash = (Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash.ToLowerInvar
 if ($checksum -ne "$hash  $([IO.Path]::GetFileName($ZipPath))") { throw 'ZIP SHA256 또는 파일명이 일치하지 않습니다.' }
 if ((Get-Item -LiteralPath $ZipPath).Length -gt 100MB) { throw 'framework-dependent ZIP 크기 한도를 초과했습니다.' }
 Add-Type -AssemblyName System.IO.Compression
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+. (Join-Path $PSScriptRoot 'archive-validation.ps1')
 $archive = [IO.Compression.ZipFile]::OpenRead($ZipPath)
 try {
+    Assert-ArchiveLayout $archive
     $entries = @($archive.Entries | Where-Object { -not $_.FullName.EndsWith('/') })
-    if ($entries.Count -gt 1000) { throw 'ZIP 항목 수 한도를 초과했습니다.' }
-    $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-    foreach ($entry in $entries) {
-        $name = $entry.FullName
-        if ($name.Contains('\') -or $name.StartsWith('/') -or $name.Contains(':') -or @($name.Split('/') | Where-Object { $_ -in @('', '.', '..') }).Count -gt 0) {
-            throw 'ZIP에 안전하지 않은 상대 경로가 있습니다.'
-        }
-        if (-not $names.Add($name) -or $entry.Length -gt 16MB) { throw 'ZIP 중복 항목 또는 항목 크기 한도 초과입니다.' }
-    }
     $rootName = "WindowsMemo-$ExpectedVersion-win-x64-framework-dependent"
     $manifestEntry = $archive.GetEntry($rootName + '/package-manifest.json')
     if ($null -eq $manifestEntry -or $manifestEntry.Length -gt 1MB) { throw '패키지 manifest가 없거나 크기 한도를 초과했습니다.' }

@@ -12,10 +12,11 @@ internal static class Program
     private static int Main(string[] args)
     {
         // Installer hooks must finish before WPF, data loading, or the instance mutex.
-        Velopack.VelopackApp.Build().Run();
+        Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
 
         bool startup = args.Contains("--startup");
-        if (args.Any(a => a is not ("--window" or "--startup")) || (startup && args.Contains("--window")))
+        bool updateTest = args.Length == 2 && args[0] == "--update-test-source";
+        if (!updateTest && (args.Any(a => a is not ("--window" or "--startup")) || (startup && args.Contains("--window"))))
         {
             MessageBox.Show("일반 창 진단 모드는 --window로 실행하세요.", "Windows 메모");
             return 2;
@@ -33,7 +34,12 @@ internal static class Program
             string root = diagnostic ? Path.Combine(FileNoteRepository.DefaultRoot, "Diagnostic") : FileNoteRepository.DefaultRoot;
             using var workspace = new NoteWorkspace(root, (view, bounds) => diagnostic
                 ? new WindowNoteSurface(view, bounds) : new DesktopNoteSurface(view, bounds));
-            using var tray = new TrayController(app, workspace, diagnostic ? null : StartupService.ForCurrentBuild());
+            using var updater = updateTest ? new UpdaterService(new VelopackUpdateBackend(args[1])) : null;
+            using var tray = new TrayController(app, workspace, diagnostic ? null : StartupService.ForCurrentBuild(), updater);
+            using var blockReason = new Interop.SessionEndBlockReason();
+            using var sessionEnding = new SessionEndingCoordinator(() => workspace.SessionEndState,
+                workspace.FlushAllAsync, action => app.Dispatcher.BeginInvoke(DispatcherPriority.Background, action),
+                result => { if (result == SessionPreparationResult.Ready) blockReason.Clear(); tray.ShowSessionPreparation(result); });
             app.Startup += async (_, _) =>
             {
                 try
@@ -56,13 +62,20 @@ internal static class Program
                     app.Shutdown(1);
                 }
             };
-            app.SessionEnding += (_, e) =>
+            void OnSessionEnding(object? sender, SessionEndingCancelEventArgs e)
             {
-                // Refuse session shutdown when the latest data cannot be flushed in time.
-                e.Cancel = true;
-                _ = tray.ExitAsync();
-            };
-            return app.Run();
+                var decision = sessionEnding.Decide();
+                e.Cancel = decision.Cancel;
+                if (e.Cancel)
+                {
+                    blockReason.Register(decision.State);
+                    sessionEnding.PrepareAfterCancellation();
+                }
+                else blockReason.Clear();
+            }
+            app.SessionEnding += OnSessionEnding;
+            try { return app.Run(); }
+            finally { app.SessionEnding -= OnSessionEnding; }
         }
         catch (Exception ex) when (NoteWorkspace.IsNoteError(ex))
         {

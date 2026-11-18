@@ -2,7 +2,9 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows.Documents;
 using System.Windows.Media;
+using System.Windows.Interop;
 using System.Windows.Threading;
+using WindowsMemo.Interop;
 using WindowsMemo.Infrastructure;
 using WindowsMemo.Models;
 using WindowsMemo.Services;
@@ -12,6 +14,21 @@ namespace WindowsMemo.Tests;
 
 internal static class WorkspaceTests
 {
+    private sealed class StartupSurface : INoteSurface
+    {
+        public DesktopNoteHost Host { get; }
+        public NoteView View { get; }
+        public StartupSurface(NoteView view, NoteBounds? bounds, Func<nint> locator)
+        {
+            View = view;
+            Host = new DesktopNoteHost(view, locator, watchChanges: true);
+            try { Host.Open(visible: false, restoredBounds: bounds); }
+            catch { Host.Dispose(); throw; }
+        }
+        public NoteBounds CaptureBounds() => Host.CaptureBounds();
+        public event EventHandler? BoundsChanged { add => Host.BoundsChanged += value; remove => Host.BoundsChanged -= value; }
+        public void Dispose() => Host.Dispose();
+    }
     private sealed class Surface : INoteSurface
     {
         public NoteView? View { get; private set; }
@@ -35,6 +52,211 @@ internal static class WorkspaceTests
         { var surface = new Surface(view); surfaces.Add(surface); return surface; });
         string Text(NoteView view) => new TextRange(view.TextEditor.Document.ContentStart, view.TextEditor.Document.ContentEnd).Text.Trim();
         NoteRecord Load(string folder, Guid id) => new FileNoteRepository(Path.Combine(root, folder), id).Load(record => RtfDocumentCodec.Load(record.Rtf), out _)!;
+        check("바탕화면 없는 초기화: 새 메모 저장·재실행 복원·늦은 재부착", () =>
+        {
+            string folder = Path.Combine(root, "desktop-not-ready");
+            var surfaces = new List<StartupSurface>();
+            nint parent = 0;
+            NoteWorkspace CreateWorkspace() => new(folder, (view, bounds) =>
+            {
+                var surface = new StartupSurface(view, bounds, () => parent);
+                surfaces.Add(surface); return surface;
+            });
+            Guid id;
+            using (var workspace = CreateWorkspace())
+            {
+                Wait(workspace.InitializeAsync());
+                id = workspace.Items.Single().Id;
+                Assert(workspace.Items.Single().Error is null && surfaces[0].Host.HasFallback);
+                var view = surfaces[0].View;
+                view.InsertPlainText("첫 로그인 임시 창에서 저장한 메모");
+                view.TextEditor.SelectAll(); view.ApplyColor(Brushes.RoyalBlue);
+                view.TextEditor.Selection.ApplyPropertyValue(TextElement.FontWeightProperty, System.Windows.FontWeights.Bold);
+                view.SetPaper("Sage");
+                Assert(Wait(workspace.FlushAllAsync()));
+            }
+            using (var workspace = CreateWorkspace())
+            {
+                Wait(workspace.InitializeAsync());
+                Assert(workspace.Items.Single().Id == id && workspace.Items.Single().Error is null);
+                var surface = surfaces[^1];
+                Assert(surface.Host.HasFallback && Text(surface.View) == "첫 로그인 임시 창에서 저장한 메모");
+                Assert(surface.View.Paper == "Sage");
+                var restoredRange = new TextRange(surface.View.TextEditor.Document.ContentStart,
+                    surface.View.TextEditor.Document.ContentEnd.GetPositionAtOffset(-1)!);
+                Assert(restoredRange.GetPropertyValue(TextElement.FontWeightProperty).Equals(System.Windows.FontWeights.Bold));
+                Assert(restoredRange.GetPropertyValue(TextElement.ForegroundProperty) is SolidColorBrush restoredBrush
+                    && restoredBrush.Color == Colors.RoyalBlue);
+                surface.View.TextEditor.SelectAll(); surface.View.InsertPlainText("늦게 연결되어도 최신 편집 보존");
+                using var desktop = new HwndSource(new HwndSourceParameters("Startup test desktop", 1600, 900)
+                    { WindowStyle = unchecked((int)0x80000000) });
+                parent = desktop.Handle; surface.Host.CheckConnection();
+                Assert(surface.Host.Handle != 0 && !surface.Host.HasFallback);
+                Assert(Text(surface.View) == "늦게 연결되어도 최신 편집 보존");
+                Assert(Wait(workspace.FlushAllAsync()));
+                var stored = new FileNoteRepository(folder, id).Load(value => RtfDocumentCodec.Load(value.Rtf), out bool recovered)!;
+                Assert(!recovered && stored.Paper == "Sage" && !stored.Hidden && !stored.Archived);
+                Assert(stored.Bounds == surface.Host.CaptureBounds());
+                var doc = RtfDocumentCodec.Load(stored.Rtf);
+                Assert(new TextRange(doc.ContentStart, doc.ContentEnd).Text.Trim() == "늦게 연결되어도 최신 편집 보존");
+            }
+            Assert(surfaces.All(surface => surface.Host.Handle == 0 && !surface.Host.HasFallback));
+        });
+        check("임시 창 위치·크기: 저장·숨김 복원·재실행·재부착", () =>
+        {
+            string folder = Path.Combine(root, "fallback-geometry");
+            var surfaces = new List<StartupSurface>(); nint parent = 0;
+            NoteWorkspace CreateWorkspace() => new(folder, (view, bounds) =>
+            { var surface = new StartupSurface(view, bounds, () => parent); surfaces.Add(surface); return surface; });
+            Guid id; NoteBounds saved;
+            using (var workspace = CreateWorkspace())
+            {
+                Wait(workspace.InitializeAsync()); id = workspace.Items.Single().Id;
+                var surface = surfaces[^1]; surface.View.InsertPlainText("임시 창에서 바꾼 배치 보존");
+                RecoveryTests.DragGrip(surface.View, "MoveGrip", 20, 15);
+                RecoveryTests.DragGrip(surface.View, "ResizeGrip", 60, 50);
+                Assert(NativeMethods.SetWindowPos(surface.Host.FallbackHandle, 0, 120, 130, 420, 380,
+                    NativeMethods.SwpNoActivate | NativeMethods.SwpNoZOrder));
+                Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+                saved = surface.Host.CaptureBounds();
+                Assert(Wait(workspace.FlushAllAsync()));
+                var record = new FileNoteRepository(folder, id).Load(value => RtfDocumentCodec.Load(value.Rtf), out _)!;
+                Assert(record.Bounds == saved && saved.X == 120 && saved.Y == 130);
+                nint fallback = surface.Host.FallbackHandle;
+                Assert(Wait(workspace.HideAsync(id)) && !NativeMethods.IsWindow(fallback));
+                Assert(Wait(workspace.ShowAsync(id)) && surfaces[^1].Host.CaptureBounds() == saved);
+            }
+            using (var workspace = CreateWorkspace())
+            {
+                Wait(workspace.InitializeAsync());
+                Assert(workspace.Items.Single().Id == id && workspace.Items.Single().Error is null);
+                var surface = surfaces[^1];
+                Assert(surface.Host.CaptureBounds() == saved && Text(surface.View) == "임시 창에서 바꾼 배치 보존");
+                using var desktop = new HwndSource(new HwndSourceParameters("Fallback geometry desktop", 1600, 900)
+                    { WindowStyle = unchecked((int)0x80000000) });
+                parent = desktop.Handle; surface.Host.CheckConnection();
+                Assert(surface.Host.Handle != 0 && !surface.Host.HasFallback && surface.Host.CaptureBounds() == saved);
+                Assert(Wait(workspace.FlushAllAsync()));
+            }
+            Assert(surfaces.All(surface => !surface.Host.HasFallback && surface.Host.Handle == 0));
+        });
+        check("임시 창 저장 실패: 실제 닫기 취소·재부착·최신 내용·배치 보존", () =>
+        {
+            string folder = Path.Combine(root, "fallback-save-failure");
+            const string latestText = "저장 실패 뒤 계속 편집한 최종 내용";
+            NoteBounds? latestBounds = null;
+            var surfaces = new List<StartupSurface>(); nint parent = 0;
+            NoteWorkspace CreateWorkspace() => new(folder, (view, bounds) =>
+            { var surface = new StartupSurface(view, bounds, () => parent); surfaces.Add(surface); return surface; });
+            using var desktop = new HwndSource(new HwndSourceParameters("Save failure test desktop", 1600, 900)
+                { WindowStyle = unchecked((int)0x80000000) });
+            Guid id;
+            using (var workspace = CreateWorkspace())
+            {
+                Wait(workspace.InitializeAsync()); id = workspace.Items.Single().Id;
+                var surface = surfaces[^1]; var view = surface.View;
+                view.InsertPlainText("이전 정상 저장"); view.SetPaper("Peach");
+                RecoveryTests.DragGrip(view, "ResizeGrip", 30, 20);
+                Assert(Wait(workspace.FlushAllAsync()));
+                var repository = new FileNoteRepository(folder, id);
+                byte[] before = File.ReadAllBytes(repository.PrimaryPath);
+                view.TextEditor.SelectAll(); view.InsertPlainText("닫기 실패 뒤에도 지킬 최신 한글 내용");
+                view.TextEditor.SelectAll(); view.ApplyColor(Brushes.RoyalBlue);
+                view.TextEditor.Selection.ApplyPropertyValue(TextElement.FontWeightProperty, System.Windows.FontWeights.Bold);
+                RecoveryTests.DragGrip(view, "ResizeGrip", 30, 20);
+                nint fallback = surface.Host.FallbackHandle;
+                using (var held = new FileStream(repository.PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    var closeAttempt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    bool busySeen = false;
+                    void OnChanged(object? sender, EventArgs e)
+                    {
+                        if (workspace.IsBusy) busySeen = true;
+                        else if (busySeen) closeAttempt.TrySetResult();
+                    }
+                    workspace.Changed += OnChanged;
+                    try
+                    {
+                        // WM_CLOSE targets only our hidden test window, exercising the real Closing handler.
+                        RecoveryTests.CloseTestWindow(fallback);
+                        Wait(closeAttempt.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+                    }
+                    finally { workspace.Changed -= OnChanged; }
+                    Assert(surface.Host.HasFallback && NativeMethods.IsWindow(fallback));
+                    Assert(!workspace.Items.Single().Hidden && view.IsEnabled && Text(view) == "닫기 실패 뒤에도 지킬 최신 한글 내용");
+                    Assert(File.ReadAllBytes(repository.PrimaryPath).SequenceEqual(before));
+                    view.TextEditor.SelectAll(); view.InsertPlainText(latestText);
+                    view.TextEditor.SelectAll(); view.ApplyColor(Brushes.RoyalBlue);
+                    view.TextEditor.Selection.ApplyPropertyValue(TextElement.FontWeightProperty, System.Windows.FontWeights.Bold);
+                    RecoveryTests.DragGrip(view, "ResizeGrip", 10, 10);
+                    latestBounds = surface.Host.CaptureBounds();
+                    view.SetCollapsed(true); Assert(!view.IsCollapsed);
+                    bool exited = false;
+                    Assert(!Wait(workspace.SaveThenAsync(() => exited = true)) && !exited);
+                    parent = desktop.Handle; surface.Host.CheckConnection();
+                    Assert(surface.Host.Handle != 0 && !surface.Host.HasFallback && !NativeMethods.IsWindow(fallback));
+                    Assert(surface.Host.CaptureBounds() == latestBounds);
+                    Assert(Text(view) == latestText && view.Paper == "Peach" && view.IsEnabled);
+                    Assert(((System.Windows.Controls.Button)view.FindName("SaveButton")).Visibility == System.Windows.Visibility.Visible);
+                    view.SetCollapsed(true); Assert(!view.IsCollapsed);
+                }
+                Assert(Wait(workspace.FlushAllAsync()));
+                Assert(((System.Windows.Controls.Button)view.FindName("SaveButton")).Visibility == System.Windows.Visibility.Collapsed);
+                view.SetCollapsed(true); Assert(view.IsCollapsed);
+                Assert(Wait(workspace.HideAsync(id)));
+                var stored = repository.Load(value => RtfDocumentCodec.Load(value.Rtf), out _)!;
+                Assert(stored.Hidden && stored.Collapsed && stored.Paper == "Peach");
+                Assert(stored.Bounds == latestBounds);
+                var doc = RtfDocumentCodec.Load(stored.Rtf);
+                Assert(new TextRange(doc.ContentStart, doc.ContentEnd).Text.Trim() == latestText);
+                Assert(Directory.GetFiles(folder, "*.tmp").Length == 0);
+                Assert(Wait(workspace.ShowAsync(id)));
+            }
+            using (var workspace = CreateWorkspace())
+            {
+                Wait(workspace.InitializeAsync());
+                var view = surfaces[^1].View;
+                Assert(workspace.Items.Single().Id == id && view.IsCollapsed && view.Paper == "Peach");
+                Assert(surfaces[^1].Host.CaptureBounds() == latestBounds);
+                Assert(Text(view) == latestText);
+                var range = new TextRange(view.TextEditor.Document.ContentStart, view.TextEditor.Document.ContentEnd.GetPositionAtOffset(-1)!);
+                Assert(range.GetPropertyValue(TextElement.FontWeightProperty).Equals(System.Windows.FontWeights.Bold));
+                Assert(range.GetPropertyValue(TextElement.ForegroundProperty) is SolidColorBrush brush && brush.Color == Colors.RoyalBlue);
+                Assert(Wait(workspace.FlushAllAsync()));
+            }
+            Assert(surfaces.All(surface => !surface.Host.HasFallback && surface.Host.Handle == 0));
+        });
+        check("초기화 임시 정리: 중복만 제거·고유/최근 보존·자동 메모 승격 금지", () =>
+        {
+            const string name = "temporary-startup";
+            string folder = Path.Combine(root, name);
+            var surfaces = new List<Surface>(); Guid id;
+            using (var workspace = Workspace(name, surfaces))
+            {
+                Wait(workspace.InitializeAsync()); id = workspace.Items.Single().Id;
+                surfaces[0].View!.InsertPlainText("확정된 메모를 유지");
+                Assert(Wait(workspace.FlushAllAsync()));
+            }
+            var repository = new FileNoteRepository(folder, id);
+            var record = repository.Load(value => RtfDocumentCodec.Load(value.Rtf), out _)!;
+            string duplicate = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".tmp");
+            File.Copy(repository.PrimaryPath, duplicate); File.SetLastWriteTimeUtc(duplicate, DateTime.UtcNow.AddDays(-2));
+            repository.Save(record with { UpdatedAtUtc = DateTimeOffset.UtcNow });
+            string recent = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".tmp"); File.Copy(repository.PrimaryPath, recent);
+            var draft = new FileNoteRepository(Path.Combine(root, "pending-seed"), id);
+            draft.Save(record with { Rtf = RtfDocumentCodec.Save(new FlowDocument(new Paragraph(new Run("未완료 새 본문은 자동 승격 금지")))) });
+            string unique = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".tmp");
+            File.Copy(draft.PrimaryPath, unique); File.SetLastWriteTimeUtc(unique, DateTime.UtcNow.AddDays(-2));
+            byte[] pendingBytes = File.ReadAllBytes(unique);
+            using (var workspace = Workspace(name, surfaces))
+            {
+                Wait(workspace.InitializeAsync());
+                Assert(workspace.TemporaryFiles.Removed == 1 && workspace.TemporaryFiles.Preserved == 2);
+                Assert(!File.Exists(duplicate) && File.Exists(recent) && File.ReadAllBytes(unique).SequenceEqual(pendingBytes));
+                Assert(workspace.Items.Count == 1 && workspace.Items.Single().Id == id && Text(surfaces[^1].View!) == "확정된 메모를 유지");
+                Assert(Wait(workspace.FlushAllAsync()));
+            }
+        });
         check("메모 수명: 생성·서식·숨김·재표시·재실행", () =>
         {
             var surfaces = new List<Surface>();
@@ -52,7 +274,7 @@ internal static class WorkspaceTests
                 Assert(Wait(workspace.HideAsync(hiddenId)) && surfaces[0].Disposed);
                 Assert(workspace.Items.Single(item => item.Id == hiddenId).Hidden);
                 var record = Load("lifecycle", hiddenId);
-                Assert(record.Hidden && record.SchemaVersion == 3 && record.Bounds.X == -120);
+                Assert(record.Hidden && record.SchemaVersion == 4 && record.Bounds.X == -120);
                 Assert(Wait(workspace.ShowAsync(hiddenId)));
                 var restored = surfaces[2].View!;
                 Assert(Text(restored) == "한글 메모");
@@ -95,12 +317,32 @@ internal static class WorkspaceTests
             surfaces[1].View!.TextEditor.SelectAll(); surfaces[1].View!.InsertPlainText("둘째 수정");
             var repo = new FileNoteRepository(Path.Combine(root, "exit-failure"), ids[0]);
             using (var held = new FileStream(repo.PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-                Assert(!Wait(workspace.FlushAllAsync()));
+                Assert(!Wait(workspace.SaveThenAsync(() => throw new Exception("must not apply after save failure"))));
             Assert(surfaces.All(surface => !surface.Disposed && surface.View!.IsEnabled));
             var second = RtfDocumentCodec.Load(Load("exit-failure", ids[1]).Rtf);
             Assert(new TextRange(second.ContentStart, second.ContentEnd).Text.Trim() == "둘째 수정");
             Assert(Wait(workspace.FlushAllAsync()));
             workspace.Dispose(); Assert(surfaces.All(surface => surface.Disposed));
+        });
+        check("업데이트 저장: 적용 중 편집·생성 차단, 적용 오류 후 편집 복구", () =>
+        {
+            var surfaces = new List<Surface>(); using var workspace = Workspace("update-handoff", surfaces);
+            Wait(workspace.InitializeAsync()); surfaces[0].View!.InsertPlainText("업데이트 전 내용");
+            bool called = false;
+            Assert(Wait(workspace.SaveThenAsync(() =>
+            {
+                called = true;
+                Assert(workspace.IsBusy && !surfaces[0].View!.IsEnabled);
+                workspace.Create(); Assert(workspace.Items.Count == 1);
+                var document = RtfDocumentCodec.Load(Load("update-handoff", workspace.Items.Single().Id).Rtf);
+                Assert(new TextRange(document.ContentStart, document.ContentEnd).Text.Trim() == "업데이트 전 내용");
+            })));
+            Assert(called && !workspace.IsBusy && surfaces[0].View!.IsEnabled);
+            bool failed = false;
+            try { Wait(workspace.SaveThenAsync(() => throw new IOException("update failed"))); }
+            catch (IOException) { failed = true; }
+            Assert(failed && !workspace.IsBusy && surfaces[0].View!.IsEnabled);
+            Assert(Text(surfaces[0].View!) == "업데이트 전 내용");
         });
         check("복원 실패: 손상 메모 보존과 정상 메모 독립 복원", () =>
         {
@@ -131,7 +373,7 @@ internal static class WorkspaceTests
                 Assert(Wait(workspace.TrashAsync(id)) && surfaces[0].Disposed);
                 Assert(workspace.Items.Count == 0 && workspace.TrashItems.Single().Id == id);
                 var record = Load("trash", id);
-                Assert(record.SchemaVersion == 3 && record.Hidden && record.DeletedAtUtc is not null);
+                Assert(record.SchemaVersion == 4 && record.Hidden && record.DeletedAtUtc is not null);
                 Assert(!Wait(workspace.ShowAsync(id)));
             }
             var restarted = new List<Surface>(); using var next = Workspace("trash", restarted);
@@ -245,6 +487,107 @@ internal static class WorkspaceTests
             ready.SetResult(); Wait(initialization);
             Assert(!workspace.IsBusy && workspace.Items.Count == 1 && surfaces.Count == 1);
         });
+        check("보관: 색상·접힘·체크리스트 보존, 실행 취소와 재실행 복원", () =>
+        {
+            var surfaces = new List<Surface>(); Guid id;
+            using (var workspace = Workspace("archive", surfaces))
+            {
+                Wait(workspace.InitializeAsync()); id = workspace.Items.Single().Id;
+                var view = surfaces[0].View!; view.InsertPlainText("보관할 생각"); view.ToggleChecklist(); view.ToggleChecklistDone();
+                view.SetPaper("Peach"); view.SetCollapsed(true);
+                Assert(Wait(workspace.ArchiveAsync(id)) && surfaces[0].Disposed);
+                Assert(workspace.Items.Count == 0 && workspace.ArchiveItems.Single().Id == id && workspace.CanUndoArchive);
+                Assert(!Wait(workspace.ShowAsync(id)));
+                Assert(Wait(workspace.UndoArchiveAsync()));
+                var restored = surfaces[^1].View!;
+                Assert(restored.Paper == "Peach" && restored.IsCollapsed && Text(restored) == "☑ 보관할 생각");
+                Assert(Wait(workspace.ArchiveAsync(id)));
+            }
+            var nextSurfaces = new List<Surface>(); using var next = Workspace("archive", nextSurfaces);
+            Wait(next.InitializeAsync()); Assert(next.ArchiveItems.Single().Id == id && nextSurfaces.Count == 0);
+            Assert(Wait(next.UnarchiveAsync(id)) && next.Items.Single().Hidden);
+            Assert(Wait(next.ShowAsync(id)) && nextSurfaces[0].View!.Paper == "Peach");
+        });
+        check("보관 실패: 최신 편집기·색상 보존, 복원 실패 시 보관 상태 유지", () =>
+        {
+            var surfaces = new List<Surface>(); using var workspace = Workspace("archive-failure", surfaces);
+            Wait(workspace.InitializeAsync()); var id = workspace.Items.Single().Id;
+            var view = surfaces[0].View!; view.InsertPlainText("원본"); Assert(Wait(workspace.FlushAllAsync()));
+            view.InsertPlainText(" 최신"); view.SetPaper("Sage");
+            var repo = new FileNoteRepository(Path.Combine(root, "archive-failure"), id);
+            using (var held = new FileStream(repo.PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                Assert(!Wait(workspace.ArchiveAsync(id)));
+            Assert(view.IsEnabled && view.Paper == "Sage" && Text(view).Contains("최신") && workspace.ArchiveItems.Count == 0);
+            Assert(Wait(workspace.ArchiveAsync(id)));
+            using (var held = new FileStream(repo.PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                Assert(!Wait(workspace.UnarchiveAsync(id)));
+            Assert(workspace.ArchiveItems.Single().Id == id);
+            Assert(Wait(workspace.TrashAsync(id)) && workspace.ArchiveItems.Count == 0 && workspace.TrashItems.Count == 1);
+        });
+        check("미완료 복구: 새 ID·숨김 사본 저장·서식·색상·재실행·원본 보존", () =>
+        {
+            const string name = "pending-copy"; string folder = Path.Combine(root, name);
+            var surfaces = new List<Surface>(); Guid copyId, originalId; string path; byte[] source, primary;
+            using (var workspace = Workspace(name, surfaces))
+            {
+                Wait(workspace.InitializeAsync()); originalId = workspace.Items.Single().Id;
+                var view = surfaces[0].View!; view.InsertPlainText("복구 전 원본"); Assert(Wait(workspace.FlushAllAsync()));
+                var repo = new FileNoteRepository(folder, originalId); primary = File.ReadAllBytes(repo.PrimaryPath);
+                var original = Load(name, originalId);
+                var doc = new FlowDocument(new Paragraph(new Run("☑ 미완료 서식 내용") { FontWeight = System.Windows.FontWeights.Bold }));
+                var seed = new FileNoteRepository(Path.Combine(root, "pending-seed"), originalId);
+                seed.Save(original with { Rtf = RtfDocumentCodec.Save(doc), Paper = "Sage", Hidden = true, Archived = true, Collapsed = true });
+                Guid token = Guid.NewGuid(); path = Path.Combine(folder, token.ToString("N") + ".tmp");
+                File.Copy(seed.PrimaryPath, path); source = File.ReadAllBytes(path);
+                var scan = Result(workspace.ScanPendingAsync()); Assert(scan.Files.Single().Token == token);
+                var preview = Result(workspace.PreviewPendingAsync(token));
+                // Mutable preview data must never replace the re-verified source bytes.
+                preview.Record.Rtf[0] = 0;
+                var recovery = Result(workspace.RecoverPendingAsync(preview)); Assert(recovery.Status == PendingRecoveryStatus.Created);
+                copyId = recovery.Id;
+                Assert(copyId != originalId && workspace.Items.Count == 2 && workspace.Items.Single(item => item.Id == copyId).Hidden);
+                Assert(Result(workspace.RecoverPendingAsync(preview)) is { AlreadyRecovered: true } repeated && repeated.Id == copyId && workspace.Items.Count == 2);
+                var copy = Load(name, copyId);
+                Assert(copy.Hidden && !copy.Archived && copy.DeletedAtUtc is null && !copy.Collapsed && copy.Paper == "Sage");
+                var restored = RtfDocumentCodec.Load(copy.Rtf);
+                Assert(new TextRange(restored.ContentStart, restored.ContentEnd).Text.Trim() == "☑ 미완료 서식 내용");
+                var start = restored.ContentStart.GetInsertionPosition(LogicalDirection.Forward);
+                Assert(new TextRange(start, start.GetNextInsertionPosition(LogicalDirection.Forward)!).GetPropertyValue(TextElement.FontWeightProperty).Equals(System.Windows.FontWeights.Bold));
+                Assert(File.ReadAllBytes(path).SequenceEqual(source) && File.ReadAllBytes(repo.PrimaryPath).SequenceEqual(primary));
+            }
+            using (var workspace = Workspace(name, surfaces))
+            {
+                Wait(workspace.InitializeAsync()); Assert(workspace.Items.Count == 2 && workspace.Items.Single(item => item.Id == copyId).Hidden);
+                Assert(Wait(workspace.ShowAsync(copyId)) && Text(surfaces[^1].View!) == "☑ 미완료 서식 내용");
+                Assert(File.ReadAllBytes(path).SequenceEqual(source));
+            }
+        });
+        check("미완료 복구: 변경·손상 RTF·잠김 실패는 메모 수와 원본 보존", () =>
+        {
+            const string name = "pending-reject"; var surfaces = new List<Surface>(); using var workspace = Workspace(name, surfaces);
+            Wait(workspace.InitializeAsync()); Assert(Wait(workspace.FlushAllAsync()));
+            Guid id = workspace.Items.Single().Id, token = Guid.NewGuid(); string folder = Path.Combine(root, name);
+            var repo = new FileNoteRepository(folder, id); string path = Path.Combine(folder, token.ToString("N") + ".tmp");
+            File.Copy(repo.PrimaryPath, path); var preview = Result(workspace.PreviewPendingAsync(token));
+            repo.Save(Load(name, id) with { UpdatedAtUtc = DateTimeOffset.UtcNow }); File.Copy(repo.PrimaryPath, path, true);
+            Assert(Result(workspace.RecoverPendingAsync(preview)).Status == PendingRecoveryStatus.SourceChanged && workspace.Items.Count == 1);
+            var seed = new FileNoteRepository(Path.Combine(root, "pending-invalid-rtf"), id);
+            seed.Save(Load(name, id) with { Rtf = [1, 2, 3] }); File.Copy(seed.PrimaryPath, path, true);
+            preview = Result(workspace.PreviewPendingAsync(token));
+            Assert(Result(workspace.RecoverPendingAsync(preview)).Status == PendingRecoveryStatus.InvalidSource && workspace.Items.Count == 1 && File.Exists(path));
+            using (var held = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                Assert(Result(workspace.RecoverPendingAsync(preview)).Status == PendingRecoveryStatus.SourceUnavailable);
+            Assert(!workspace.IsBusy && workspace.Items.Count == 1);
+        });
+        check("미완료 복구: 작업공간 준비·폐기 중 요청 거부", () =>
+        {
+            var surfaces = new List<Surface>(); using var workspace = Workspace("pending-busy", surfaces);
+            var ready = new TaskCompletionSource(); var initializing = workspace.InitializeAsync(() => ready.Task);
+            var preview = new PendingNotePreview(Guid.NewGuid(), "untrusted", null!);
+            Assert(Result(workspace.RecoverPendingAsync(preview)).Status == PendingRecoveryStatus.Busy);
+            ready.SetResult(); Wait(initializing); workspace.Dispose();
+            Assert(Result(workspace.RecoverPendingAsync(preview)).Status == PendingRecoveryStatus.Busy);
+        });
         check("숨김 20회: 폐기한 편집기 수집과 창 수 유지", () =>
         {
             var surfaces = new List<Surface>(); using var workspace = Workspace("repeated", surfaces);
@@ -275,5 +618,6 @@ internal static class WorkspaceTests
     }
     private static void Wait(Task task) { Pump(task); task.GetAwaiter().GetResult(); }
     private static bool Wait(Task<bool> task) { Pump(task); return task.GetAwaiter().GetResult(); }
+    private static T Result<T>(Task<T> task) { Pump(task); return task.GetAwaiter().GetResult(); }
     private static void Assert(bool value) { if (!value) throw new InvalidOperationException("Workspace assertion failed."); }
 }

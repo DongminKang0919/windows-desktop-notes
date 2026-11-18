@@ -26,13 +26,13 @@ $asset = $assets[0]
 if ($asset.PackageId -ne 'WindowsMemoApp' -or $asset.Version -ne $ExpectedVersion -or $asset.Type -ne 'Full' -or $asset.FileName -ne $packageName -or $asset.Size -ne (Get-Item -LiteralPath $package).Length -or $asset.SHA256 -ne (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash -or $asset.SHA1 -ne (Get-FileHash -LiteralPath $package -Algorithm SHA1).Hash) { throw '업데이트 목록과 패키지가 일치하지 않습니다.' }
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+. (Join-Path $PSScriptRoot 'archive-validation.ps1')
 $archive = [IO.Compression.ZipFile]::OpenRead($package)
 try {
-    if ($archive.Entries.Count -gt 1000) { throw '패키지 항목이 너무 많습니다.' }
+    Assert-ArchiveLayout $archive
     $names = @{}
     foreach ($entry in $archive.Entries) {
         $name = $entry.FullName
-        if ($entry.Length -gt 16MB -or $name.Contains('\') -or $name.StartsWith('/') -or $name.Contains(':') -or $name -match '(^|/)\.\.?(/|$)' -or $names.ContainsKey($name)) { throw '위험하거나 중복된 패키지 경로입니다.' }
         $names[$name] = $entry
         if ($name -match 'WindowsMemo\.Tests|\.(pdb|rtf|tmp|bak|cs|xaml)$|\.damaged-|(^|/)(Notes|Diagnostic|storage-tests|workspace-tests)/') { throw '개발 또는 메모 데이터가 포함되었습니다.' }
     }

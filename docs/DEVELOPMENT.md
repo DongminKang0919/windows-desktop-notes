@@ -3,7 +3,9 @@
 ## 사용자 작업 선호
 
 - 작업을 마칠 때 검증 결과와 남은 제한사항을 기록하고 로컬 커밋까지 수행한다.
-- 원격 푸시는 사용자가 다시 요청하기 전까지 기존 보류를 유지한다.
+- 사용자가 푸시를 요청하면 Codex가 원격 동기화, 충돌 해결, 푸시, PR 생성·갱신과 CI 확인까지 수행한다. 사용자는 완성된 PR을 검토한다. 기존 PR이 있으면 갱신하고 중복 PR을 만들지 않는다.
+- 후속 작업은 최신 `origin/main`을 확인하고 시작한다. 이전 PR이 squash 병합됐다면 원래 작업 브랜치의 이력을 그대로 새 PR에 쌓지 않는다. 충돌은 기존 기능과 데이터 보존을 확인하며 로컬에서 해결한다.
+- 검토 전 `main` 병합이나 강제 푸시는 하지 않는다. 검증 결과, 미검증 항목과 CI 상태를 PR 본문에 기록하고 최종 응답에 PR 링크를 제공한다.
 - 개발 단계 표기는 prototype을 사용한다.
 
 ## 운영 원칙
@@ -67,9 +69,9 @@ GitHub Projects 연결 전에는 `BACKLOG.md`로 관리한다. 연결 후 이슈
 
 바탕화면 부착, Win+D, 클릭 및 입력은 실제 Windows 환경에서 수동 검증한다. Windows 빌드, 화면 배율, 모니터 수와 결과를 기록한다. 자동 테스트는 이 확인을 대신하지 않는다.
 
-## Git와 CI 도입 계획
+## Git와 CI 운영
 
-현재 로컬 Git 저장소를 main 브랜치로 초기화하고 https://github.com/DongminKang0919/windows-desktop-notes.git 를 origin으로 연결했다. Windows 빌드 CI 워크플로를 추가했으며 원격 실행 검증은 남아 있다. GitHub Projects는 아직 연결하지 않았다.
+origin은 https://github.com/DongminKang0919/windows-desktop-notes.git 이며 main을 기준으로 작업한다. 2026-10-23 fetch에서 PR #17 병합 main `cdb7506`을 확인했다. 0.9.15 원격 Windows CI 결과는 [아카이브 검증 기록](results/ARCHIVE-10A2.md)을 따른다. GitHub Projects 보드·이슈 연결, 게시자 인증·서명·실제 설치본 업데이트, 8/24시간 상주는 미완료다. 과거 로컬 차단 기록과 현재 실행 결과를 버전별로 구분한다.
 
 - `main`을 기본 브랜치로 사용한다.
 - 작업별로 짧은 브랜치를 사용한다. 예: `feat/desktop-attachment`, `fix/note-restore`, `docs/readme`.

@@ -1,0 +1,51 @@
+# 패키징·설치·로컬 시험 업데이트
+
+[프로젝트 소개와 빠른 시작](../README.md)으로 돌아갑니다. 공개 배포·설치본 간 업데이트 검증은 아직 완료하지 않았습니다.
+
+## ZIP 패키지 만들기
+
+프로젝트 루트 PowerShell에서 실행합니다. 앱 버전은 공통 설정 [Directory.Build.props](../Directory.Build.props)에서 읽습니다.
+
+```powershell
+.\scripts\package.ps1
+# 로그인된 Windows 세션에서 바탕화면 호스트 검증까지 포함하려면:
+.\scripts\package.ps1 -ShellProbe
+```
+
+Release 빌드와 검증 후 Windows x64 publish 결과를 `artifacts/package-GUID` 아래 ZIP·SHA256 파일로 만듭니다. 매번 별도 폴더를 사용하며 기존 패키지를 덮어쓰지 않습니다. ZIP에는 실행 파일, 런타임 설정, 시작 안내와 파일별 해시·버전·소스 상태 manifest만 포함합니다. 사용자 메모와 테스트 데이터는 포함하지 않습니다.
+
+0.9.15부터 패키징의 빌드·검사·publish 중간 출력도 같은 실행의 `build` 하위에 격리합니다. 기존 `src`/`tests`의 기본 빌드 출력을 사용하지 않습니다. 생성 안내에는 실제 저장 스키마 4와 이전 1/2/3 읽기 호환성을 표시합니다.
+
+ZIP 전체를 풀고 `WindowsMemo.exe`를 실행합니다. **.NET 10 Desktop Runtime x64가 필요**하며 런타임을 포함한 패키지는 아닙니다. 자동 실행 등록 후 폴더를 옮기면 다시 등록해야 합니다. 실제 압축 해제본의 UI 실행은 검토 대기입니다.
+
+`scripts/verify-package.ps1 -ZipPath <ZIP 경로>`로 구성과 해시를 확인하고, `scripts/test-package.ps1 -ZipPath <ZIP 경로>`로 변조·위험 경로 거부를 확인할 수 있습니다. 해시는 손상 확인용이며 게시자 서명을 대신하지 않습니다.
+
+ZIP과 설치 패키지는 공통 아카이브 검사로 디렉터리를 포함한 경로·Windows 예약 이름·끝 점/공백·대소문자/파일-폴더 충돌·링크/특수 파일 속성을 거부합니다. 항목은 총 1,000개·개별 16MiB·압축 해제 합계 256MiB 이하로 제한합니다. `scripts/test-archive-validation.ps1`은 실제 실행 파일을 사용하지 않는 합성 ZIP/설치 패키지를 검사하며 기본 Windows CI에 포함됩니다. [검사와 제한](results/ARCHIVE-10A2.md).
+
+[Build prototype ZIP](../.github/workflows/package.yml)은 GitHub Actions 수동 실행으로 다운로드용 ZIP과 체크섬을 14일 보관하도록 구성했습니다. GitHub Release 게시·설치·자동 업데이트는 수행하지 않습니다. 상세는 [패키징 검증 기록](results/PACKAGE-10A.md)을 참고해 주세요.
+
+## prototype 설치 파일 만들기
+
+```powershell
+.\scripts\package-installer.ps1 -ShellProbe
+```
+
+ZIP 검증 후 Velopack으로 설치 EXE, full 업데이트 패키지와 피드를 `artifacts/package-GUID/installer`에 만듭니다. 설치 루트는 `%LOCALAPPDATA%\WindowsMemoApp`, 메모는 기존 `%LOCALAPPDATA%\WindowsMemo\Notes`로 분리합니다. .NET 10 Desktop Runtime x64가 없으면 설치기가 다운로드하도록 설정했습니다. 설치기는 완료 후 앱을 실행합니다.
+
+`scripts/verify-installer.ps1 -ReleaseDirectory <폴더> -ExpectedVersion <생성한 패키지 버전>`으로 파일·피드·payload 해시를 검사하고, `scripts/test-installer.ps1 -ReleaseDirectory <폴더>`로 변조 거부를 확인합니다. [수동 installer CI](../.github/workflows/installer.yml)는 artifact만 생성합니다. **서명되지 않은 prototype이며 실제 설치·제거·버전 간 업데이트 검증은 남아 있습니다.** 기존 0.7.0 산출물은 [검증 기록](results/INSTALLER-10B1.md)을 참고해 주세요.
+
+## 로컬 시험 업데이트
+
+설치본을 종료한 후 설치된 실행 파일에 시험 폴더를 지정합니다. 폴더에는 신뢰하는 로컬 빌드의 `releases.win.json`과 더 높은 정식 버전의 full nupkg를 둡니다. 0.7.0에는 업데이트 UI가 없으므로 이 경로의 실제 시험에는 0.8.0 이상 설치본 두 버전이 필요합니다.
+
+```powershell
+& "$env:LOCALAPPDATA\WindowsMemoApp\current\WindowsMemo.exe" --update-test-source 'C:\UpdateTest'
+```
+
+트레이의 **업데이트 확인 (로컬 시험)**으로 다운로드하고, **저장 후 업데이트**를 선택해 확인하면 모든 메모를 저장한 뒤 재시작합니다. 저장 또는 적용 요청에 실패하면 편집기를 유지합니다. 다운로드만으로 적용하거나 앱 시작 때 자동 적용하지 않습니다. 일반 실행·로그인 실행에서는 시험 메뉴가 없으며 ZIP·진단 모드의 업데이트 시험은 지원하지 않습니다. 시험 폴더는 실행 인수로만 지정하며 로그인 옵션에 저장하지 않습니다.
+
+서명되지 않은 로컬 시험용입니다. 원격 주소·다른 제품·시험판·delta 패키지는 받지 않습니다. 피드 1MiB·100항목, 패키지 256MiB 제한과 경로·크기·SHA256 검사를 적용합니다. 해시는 게시자 인증을 대신하지 않습니다. 공개 자동 업데이트와 설치본 간 데이터 보존 검증은 후속입니다. [구현·검증 기록](results/UPDATE-10B2A.md).
+
+0.9.14부터 다운로드는 캐시 폴더의 별도 임시 파일에 작성하고 검증 완료 후 대상 파일을 교체합니다. 검증 실패·취소·대상 잠금 시 기존 캐시를 비우지 않으며 일반 실패 경로의 임시 파일을 정리합니다. 피드 원본 폴더나 그 하위는 캐시 대상으로 사용할 수 없습니다. 프로세스 강제 중단 시 남은 다운로드 임시 파일의 자동 정리는 구현하지 않았습니다. [캐시 보존 검증과 한계](results/UPDATE-CACHE-10B2C.md).
+
+0.9.16은 다운로드 후·적용 직전 패키지 구조 검사에서 파일을 부모로 쓰는 경로, Windows 예약 이름의 위 첨자 숫자·확장자 앞 공백, 반복 끝 구분자, 데이터가 있거나 속성이 모순되는 디렉터리 항목을 거부하도록 보완합니다. 로컬 빌드는 통과했으며 앱 제어 정책으로 실행 검증은 대기 중입니다. [업데이트 경로 검사](results/UPDATE-ARCHIVE-10B2D.md).

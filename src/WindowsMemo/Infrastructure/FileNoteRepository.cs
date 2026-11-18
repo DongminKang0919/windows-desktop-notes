@@ -12,6 +12,8 @@ internal sealed class UnsupportedNoteSchemaException : IOException
 
 public sealed class FileNoteRepository
 {
+    internal enum SaveCheckpoint { TemporaryFlushed, DamagedPreserved, Committed }
+    private readonly Action<SaveCheckpoint>? _checkpoint;
     // Legacy 0.3.0 note ID; keep its path unchanged for compatibility.
     public static readonly Guid NoteId = new("9eeb0907-8f5e-47c6-92dc-ea3c63e4f846");
     public const int MaxFileBytes = 4 * 1024 * 1024;
@@ -27,11 +29,15 @@ public sealed class FileNoteRepository
 
     public FileNoteRepository(string root) : this(root, NoteId) { }
 
-    public FileNoteRepository(string root, Guid id)
+    public FileNoteRepository(string root, Guid id) : this(root, id, null) { }
+
+    // Instance-scoped test observation only; public callers never install a checkpoint callback.
+    internal FileNoteRepository(string root, Guid id, Action<SaveCheckpoint>? checkpoint)
     {
         if (id == Guid.Empty) throw new ArgumentException("메모 ID가 비어 있습니다.", nameof(id));
         _root = Path.GetFullPath(root);
         Id = id;
+        _checkpoint = checkpoint;
     }
 
     // Discover only app-owned names, including notes with just a surviving backup.
@@ -93,12 +99,16 @@ public sealed class FileNoteRepository
         }
     }
 
-    public void Save(NoteRecord record)
+    public void Save(NoteRecord record) => SaveCore(record, createOnly: false);
+    internal void SaveNew(NoteRecord record) => SaveCore(record, createOnly: true);
+    private void SaveCore(NoteRecord record, bool createOnly)
     {
         lock (_gate)
         {
             ValidateIdentity(record);
             CheckPaths();
+            if (createOnly && (File.Exists(PrimaryPath) || File.Exists(BackupPath)))
+                throw new IOException("기존 메모를 덮어쓸 수 없습니다.");
             Directory.CreateDirectory(_root);
             CheckPaths();
             byte[] plain = JsonSerializer.SerializeToUtf8Bytes(record, JsonOptions);
@@ -112,15 +122,25 @@ public sealed class FileNoteRepository
             {
                 using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 { stream.Write(bytes); stream.Flush(flushToDisk: true); }
+                _checkpoint?.Invoke(SaveCheckpoint.TemporaryFlushed);
                 CheckPaths();
+                if (createOnly)
+                {
+                    if (File.Exists(BackupPath)) throw new IOException("기존 백업을 보존했습니다.");
+                    File.Move(temp, PrimaryPath); // Atomic no-overwrite creation, including a competing writer.
+                    _checkpoint?.Invoke(SaveCheckpoint.Committed);
+                    return;
+                }
                 if (_preservePrimary && File.Exists(PrimaryPath))
                 {
                     // Keep the damaged primary and known-good backup unchanged.
                     File.Move(PrimaryPath, PrimaryPath + ".damaged-" + Guid.NewGuid().ToString("N"));
+                    _checkpoint?.Invoke(SaveCheckpoint.DamagedPreserved);
                 }
                 if (_preservePrimary || !File.Exists(PrimaryPath)) File.Move(temp, PrimaryPath);
                 else File.Replace(temp, PrimaryPath, BackupPath);
                 _preservePrimary = false;
+                _checkpoint?.Invoke(SaveCheckpoint.Committed);
             }
             finally
             {
@@ -159,6 +179,14 @@ public sealed class FileNoteRepository
     private NoteRecord Read(string file)
     {
         using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var record = ReadSnapshot(stream);
+        ValidateIdentity(record);
+        return record;
+    }
+
+    // Same bounded DPAPI/schema validation for committed files and maintenance snapshots.
+    internal static NoteRecord ReadSnapshot(Stream stream)
+    {
         if (stream.Length is 0 or > MaxFileBytes) throw new InvalidDataException("잘못된 저장 파일 크기입니다.");
         byte[] bytes = new byte[(int)stream.Length];
         stream.ReadExactly(bytes);
@@ -170,7 +198,7 @@ public sealed class FileNoteRepository
         {
             if (plain.Length > 3 * 1024 * 1024) throw new InvalidDataException("복원 데이터가 크기 한도를 초과했습니다.");
             var record = JsonSerializer.Deserialize<NoteRecord>(plain, JsonOptions) ?? throw new InvalidDataException("메모 데이터가 없습니다.");
-            ValidateIdentity(record);
+            Validate(record);
             return record;
         }
         finally { CryptographicOperations.ZeroMemory(plain); }
@@ -178,8 +206,11 @@ public sealed class FileNoteRepository
 
     public static void Validate(NoteRecord record)
     {
-        if (record.SchemaVersion > 3) throw new UnsupportedNoteSchemaException();
-        if (record.SchemaVersion is not (1 or 2 or 3) || (record.SchemaVersion == 1 && record.Hidden)
+        if (record.SchemaVersion > 4) throw new UnsupportedNoteSchemaException();
+        if (record.SchemaVersion is not (1 or 2 or 3 or 4) || (record.SchemaVersion == 1 && record.Hidden)
+            || !WindowsMemo.Views.NoteTheme.IsPaper(record.Paper)
+            || (record.SchemaVersion < 4 && (record.Paper != "Butter" || record.Collapsed || record.Archived))
+            || (record.Archived && (!record.Hidden || record.DeletedAtUtc is not null))
             || (record.SchemaVersion < 3 && record.DeletedAtUtc is not null)
             || (record.DeletedAtUtc is { } deleted && (!record.Hidden || deleted < record.CreatedAtUtc || deleted > record.UpdatedAtUtc)) || record.Id == Guid.Empty || record.Rtf is not { Length: > 0 and <= 2 * 1024 * 1024 }
             || record.Bounds is not { } b || !double.IsFinite(b.X) || !double.IsFinite(b.Y)
@@ -196,11 +227,11 @@ public sealed class FileNoteRepository
         CheckLink(PrimaryPath);
         CheckLink(BackupPath);
     }
-    private static void CheckRoot(string root)
+    internal static void CheckRoot(string root)
     {
         for (string? current = root; current is not null; current = Path.GetDirectoryName(current)) CheckLink(current);
     }
-    private static void CheckLink(string path)
+    internal static void CheckLink(string path)
     {
         try
         {

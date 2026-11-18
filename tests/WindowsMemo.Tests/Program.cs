@@ -16,6 +16,19 @@ internal static class Program
     {
         try
         {
+            if (args.Length > 0 && args[0] == "--crash-probe")
+            {
+                if (args.Length != 1) throw new ArgumentException("Use --crash-probe without extra arguments.");
+                CrashProbe.Run(); return 0;
+            }
+            if (args.Length > 0 && args[0] == "--crash-probe-child") { CrashProbe.RunChild(args[1..]); return 0; }
+            if (args.Length > 0 && args[0] == "--workspace-probe") { WorkspaceProbe.Run(args[1..]); return 0; }
+            if (args.Length > 0 && args[0] == "--recovery-probe") { RecoveryLifetimeProbe.Run(args[1..]); return 0; }
+            if (args.Contains("--performance-probe")) { PerformanceProbe.Run(); return 0; }
+            if (args.Contains("--stability-probe")) { StabilityProbe.Run(); return 0; }
+            if (args.Length == 2 && args[0] == "--validate-update-package") { UpdatePackageTests.ValidateKnownPackage(args[1]); return 0; }
+            if (args.Contains("--render-ui-only")) { NoteDesignTests.RenderPreviews(); return 0; }
+            if (args.Contains("--design-only")) { NoteDesignTests.Run(Check); return 0; }
             Check("한글 및 여러 줄 삽입", () =>
             {
                 using var view = new NoteView();
@@ -108,8 +121,23 @@ internal static class Program
             });
             RecoveryTests.Run(Check);
             StorageTests.Run(Check);
+            TemporaryFileTests.Run(Check);
+            PendingRecoveryTests.Run(Check);
+            RecoveryIdentityTests.Run(Check);
+            RecoveryFeedbackTests.Run(Check);
+            PendingCursorTests.Run(Check);
             WorkspaceTests.Run(Check);
+            PendingRecoveryUiTests.Run(Check);
+            PreviewSchedulingTests.Run(Check);
+            NoteListTests.Run(Check);
+            SessionEndingTests.Run(Check);
+            WorkspaceDisposalTests.Run(Check);
             StartupTests.Run(Check);
+            UpdateTests.Run(Check);
+            UpdateDownloadTests.Run(Check);
+            UpdatePackageTests.Run(Check);
+            NoteDesignTests.Run(Check);
+            if (args.Contains("--render-ui")) NoteDesignTests.RenderPreviews();
             if (args.Contains("--shell-probe"))
             {
                 Check("실제 데스크톱 호스트 생성/해제", () =>
@@ -121,6 +149,16 @@ internal static class Program
                     Assert(host.Handle != 0);
                     var source = HwndSource.FromHwnd(host.Handle);
                     Assert(source is not null && source.RootVisual == view);
+                    Assert(NativeMethods.GetParent(host.Handle) == DesktopNoteHost.FindDesktopView());
+                    Assert((NativeMethods.GetWindowLongPtr(host.Handle, -16).ToInt64() & NativeMethods.WsChild) != 0);
+                    Assert((NativeMethods.GetWindowLongPtr(host.Handle, -20).ToInt64() & 8) == 0); // no WS_EX_TOPMOST
+                    var expanded = host.CaptureBounds();
+                    view.SetCollapsed(true);
+                    Assert(NativeMethods.GetWindowRect(host.Handle, out var folded));
+                    Assert(Math.Abs(folded.Bottom - folded.Top - NoteTheme.CollapsedHeight * expanded.Scale) <= 1);
+                    Assert(host.CaptureBounds().Height == expanded.Height);
+                    view.SetCollapsed(false);
+                    Assert(NativeMethods.GetWindowRect(host.Handle, out var unfolded) && unfolded.Bottom - unfolded.Top > folded.Bottom - folded.Top);
                     host.Dispose();
                     Assert(host.Handle == 0);
                 });

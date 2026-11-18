@@ -13,20 +13,26 @@ public sealed class AutosaveCoordinator : IDisposable
     private readonly DateTimeOffset _created;
     private readonly Func<bool> _hidden;
     private readonly Func<DateTimeOffset?> _deleted;
+    private readonly Func<bool> _archived;
     private readonly DispatcherTimer _timer;
     private Task<bool>? _saving;
     private long _version, _savedVersion;
     private DateTimeOffset _firstChange, _lastChange, _retryAfter;
     private bool _disposed;
+    private bool _saveFailed;
+    internal bool IsScheduled => _timer.IsEnabled;
+    internal SaveState State => _disposed ? SaveState.Disposed : _saving is not null ? SaveState.Saving
+        : _saveFailed ? SaveState.Failed : _version != _savedVersion ? SaveState.Dirty : SaveState.Saved;
 
-    public AutosaveCoordinator(NoteView view, FileNoteRepository repository, Func<NoteBounds> bounds, DateTimeOffset created, Func<bool>? hidden = null, Func<DateTimeOffset?>? deleted = null)
+    public AutosaveCoordinator(NoteView view, FileNoteRepository repository, Func<NoteBounds> bounds, DateTimeOffset created, Func<bool>? hidden = null, Func<DateTimeOffset?>? deleted = null, Func<bool>? archived = null)
     {
         _view = view; _repository = repository; _bounds = bounds; _created = created; _hidden = hidden ?? (() => false); _deleted = deleted ?? (() => null);
+        _archived = archived ?? (() => false);
         _view.DocumentChanged += OnChange;
+        _view.AppearanceChanged += OnChange;
         _view.SaveRequested += OnSave;
         _timer = new DispatcherTimer(DispatcherPriority.Background, view.Dispatcher) { Interval = TimeSpan.FromMilliseconds(250) };
         _timer.Tick += OnTick;
-        _timer.Start();
         _view.SetSaveStatus("저장 완료", false);
     }
 
@@ -37,7 +43,8 @@ public sealed class AutosaveCoordinator : IDisposable
         if (_version == _savedVersion) _firstChange = now;
         _lastChange = now;
         _version++;
-        _view.SetSaveStatus("저장 대기 중", false);
+        if (!_saveFailed) _view.SetSaveStatus("저장 대기 중", false);
+        _timer.Start();
     }
     private void OnChange(object? sender, EventArgs e) => MarkChanged();
     private async void OnSave(object? sender, EventArgs e) => await FlushAsync();
@@ -54,38 +61,47 @@ public sealed class AutosaveCoordinator : IDisposable
     {
         if (_disposed) return false;
         if (_saving is not null && !await _saving) return false;
-        while (_version != _savedVersion) if (!await SaveAsync()) return false;
-        return true;
+        while (!_disposed && _version != _savedVersion) if (!await SaveAsync()) return false;
+        return !_disposed;
     }
     private Task<bool> SaveAsync()
     {
         if (_saving is not null) return _saving;
-        var task = SaveSnapshotAsync();
-        _saving = task;
-        return CompleteAsync(task);
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _saving = completion.Task;
+        _ = CompleteAsync(completion);
+        return completion.Task;
     }
-    private async Task<bool> CompleteAsync(Task<bool> task)
+    private async Task CompleteAsync(TaskCompletionSource<bool> completion)
     {
-        try { return await task; }
-        finally { _saving = null; }
+        try
+        {
+            bool result = await SaveSnapshotAsync();
+            _saving = null; // Clear before releasing ANY waiter, including concurrent flushes.
+            completion.SetResult(result);
+        }
+        catch (Exception ex) { _saving = null; completion.SetException(ex); }
     }
     private async Task<bool> SaveSnapshotAsync()
     {
         long version = _version;
         try
         {
-            _view.SetSaveStatus("저장 중…", false);
-            var record = new NoteRecord(3, _repository.Id, RtfDocumentCodec.Save(_view.TextEditor.Document),
-                _bounds(), _created, DateTimeOffset.UtcNow, _hidden(), _deleted());
+            _view.SetSaveStatus(_saveFailed ? "저장 재시도 중…" : "저장 중…", _saveFailed);
+            var record = new NoteRecord(4, _repository.Id, RtfDocumentCodec.Save(_view.TextEditor.Document),
+                _bounds(), _created, DateTimeOffset.UtcNow, _hidden(), _deleted(), _view.Paper, _view.IsCollapsed, _archived());
             await Task.Run(() => _repository.Save(record));
             _savedVersion = version;
+            _saveFailed = false;
             _retryAfter = default;
+            if (_version == version) _timer.Stop();
             if (!_disposed) _view.SetSaveStatus(_version == version ? "저장 완료" : "저장 대기 중", false);
             return true;
         }
         catch (Exception ex) when (FileNoteRepository.IsStorageError(ex))
         {
             _retryAfter = DateTimeOffset.UtcNow.AddSeconds(5);
+            _saveFailed = true;
             if (!_disposed) _view.SetSaveStatus("저장 실패 · 내용을 유지하고 있습니다. 다시 시도하세요.", true);
             return false;
         }
@@ -96,6 +112,7 @@ public sealed class AutosaveCoordinator : IDisposable
         _disposed = true;
         _timer.Stop(); _timer.Tick -= OnTick;
         _view.DocumentChanged -= OnChange;
+        _view.AppearanceChanged -= OnChange;
         _view.SaveRequested -= OnSave;
     }
 }
