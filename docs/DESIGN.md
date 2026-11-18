@@ -1,5 +1,7 @@
 # 초기 설계
 
+0.10.0에서 SettingsService/FileSettingsStore와 SettingsWindow로 기본 메모 색상·크기·수동 실행 목록 표시를 관리한다. 설정 변경은 새 메모부터 적용하며 기존 StartupService의 로그인 자동 실행 설정도 같은 창에서 조작한다. NoteView의 직접 제목은 스키마 5의 Title에 저장하고 빈 값이면 기존 NoteTitleSummary로 본문 첫 줄을 표시한다. 제목 변경은 기존 자동 저장과 목록 갱신 경로에 연결한다. [검증과 호환성](results/SETTINGS-TITLES-15.md). 계정 로그인과 사용자용 백업·복원은 후속 작업이다.
+
 이 문서는 전체 제품의 초기 설계다. 현재 Program, NoteView, DesktopNoteHost 및 NativeMethods로 첫 prototype을 구현했다. 0.3.0에서 NoteRecord, RtfDocumentCodec, AutosaveCoordinator, FileNoteRepository로 메모 하나 저장을 추가했다. 0.4.0에서 NoteWorkspace·NoteSession·NoteSurface·TrayController·NoteListWindow로 여러 메모·트레이·숨김을 구현했다. 0.5.0에서 휴지통 이동·복원·영구 삭제와 스키마 3의 DeletedAtUtc를 추가했다. 0.6.0에서 현재 계정의 로그인 자동 실행 옵션을 추가했다. MVVM과 업데이트는 후속 항목이다. 요구사항은 `REQUIREMENTS.md`, 작업 상태는 `BACKLOG.md`, 실제 구조는 README를 기준으로 한다.
 
 ## 0.9.0 포스트잇 UI

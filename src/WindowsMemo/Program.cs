@@ -60,9 +60,9 @@ internal static class Program
                             await Task.Delay(1000);
                     } : null);
                     initialized = true;
-                    // A manual launch always provides a normal window, even if desktop attachment
-                    // is obscured or the notification-area icon is hidden by Windows.
-                    if (!startup || activationPending || workspace.Items.Any(item => item.Error is not null)) tray.ShowList();
+                    // Manual-launch preference does not suppress an explicit second-launch request
+                    // or errors that need a reachable normal window.
+                    if ((!startup && workspace.Settings.Current.ShowListOnLaunch) || activationPending || workspace.Items.Any(item => item.Error is not null)) tray.ShowList();
                     if (workspace.Items.Any(item => item.Error is not null)) MessageBox.Show("일부 메모를 복원하지 못했습니다. 파일은 보존되며 목록에서 다시 시도할 수 있습니다.", "메모 복원 확인");
                 }
                 catch (Exception ex) when (NoteWorkspace.IsNoteError(ex))

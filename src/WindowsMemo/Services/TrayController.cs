@@ -19,6 +19,8 @@ internal sealed class TrayController : IDisposable
     private readonly Icon _icon = (Icon)SystemIcons.Application.Clone();
     private readonly Forms.ToolStripMenuItem _new = new("새 메모");
     private readonly Forms.ToolStripMenuItem _list = new("메모 목록");
+    private readonly Forms.ToolStripMenuItem _settings = new("설정…");
+    private SettingsWindow? _settingsWindow;
     private readonly Forms.ToolStripMenuItem _trash = new("휴지통");
     private readonly Forms.ToolStripMenuItem _archive = new("보관함");
     private readonly Forms.ToolStripMenuItem _undoArchive = new("보관 실행 취소");
@@ -36,11 +38,12 @@ internal sealed class TrayController : IDisposable
         _app = app; _workspace = workspace; _startupService = startupService; _updater = updater;
         try
         {
-            _menu.Items.AddRange([_new, _list, _archive, _undoArchive, _trash, _recovery, new Forms.ToolStripSeparator(), _startup, new Forms.ToolStripSeparator(), _exit]);
+            _menu.Items.AddRange([_new, _list, _archive, _undoArchive, _trash, _recovery, new Forms.ToolStripSeparator(), _settings, _startup, new Forms.ToolStripSeparator(), _exit]);
             if (_updater is not null) _menu.Items.Insert(_menu.Items.Count - 1, _update);
             _tray.Icon = _icon; _tray.Text = $"Windows 메모 · {typeof(TrayController).Assembly.GetName().Version?.ToString(3)} prototype"; _tray.ContextMenuStrip = _menu;
             _new.Click += OnNew; _list.Click += OnList; _trash.Click += OnTrash; _exit.Click += OnExit;
             _tray.DoubleClick += OnList;
+            _settings.Click += OnSettings;
             _startup.Click += OnStartup;
             _update.Click += OnUpdate;
             _archive.Click += OnArchive;
@@ -50,6 +53,7 @@ internal sealed class TrayController : IDisposable
             RefreshStartup();
             workspace.Changed += OnChanged; workspace.ListRequested += OnList; workspace.Notice += OnNotice;
             workspace.ArchiveListRequested += OnArchive;
+            workspace.SettingsRequested += OnSettings;
             _tray.Visible = true;
         }
         catch { Dispose(); throw; }
@@ -73,6 +77,17 @@ internal sealed class TrayController : IDisposable
         if (_window.WindowState == WindowState.Minimized) _window.WindowState = WindowState.Normal;
         _window.Activate();
     }
+    private void OnSettings(object? sender, EventArgs e) => Dispatch(() =>
+    {
+        if (_settingsWindow is null)
+        {
+            _settingsWindow = new SettingsWindow(_workspace.Settings, _startupService);
+            _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+            _settingsWindow.Show();
+        }
+        if (_settingsWindow.WindowState == WindowState.Minimized) _settingsWindow.WindowState = WindowState.Normal;
+        _settingsWindow.Activate();
+    });
     private void OnTrash(object? sender, EventArgs e) => Dispatch(() =>
     {
         if (_trashWindow is null)
@@ -223,6 +238,8 @@ internal sealed class TrayController : IDisposable
         _disposed = true;
         _workspace.Changed -= OnChanged; _workspace.ListRequested -= OnList; _workspace.Notice -= OnNotice;
         _workspace.ArchiveListRequested -= OnArchive;
+        _workspace.SettingsRequested -= OnSettings;
+        _settings.Click -= OnSettings;
         _new.Click -= OnNew; _list.Click -= OnList; _trash.Click -= OnTrash; _exit.Click -= OnExit; _tray.DoubleClick -= OnList;
         _startup.Click -= OnStartup; _menu.Opening -= OnMenuOpening;
         _update.Click -= OnUpdate;
@@ -235,5 +252,6 @@ internal sealed class TrayController : IDisposable
         _trashWindow?.Close(); _trashWindow = null;
         _archiveWindow?.Close(); _archiveWindow = null;
         _recoveryWindow?.Close(); _recoveryWindow = null;
+        _settingsWindow?.CloseForShutdown(); _settingsWindow = null;
     }
 }
