@@ -132,6 +132,8 @@ flowchart TD
 
 ## 개발과 검증
 
+데스크톱에서 실제 앱을 8/24시간 사용하며 메모리·CPU·핸들·GUI 자원을 기록하려면 [장시간 사용 기록 안내](docs/LONG-RUN-TEST.md)를 참고하세요. 별도 감시 도구와 런타임 포함 시험 ZIP을 제공하며 메모 본문은 수집하지 않습니다.
+
 기존 **WPF UI와 WinForms 트레이**를 유지합니다. 디자인 값은 [NoteTheme.cs](src/WindowsMemo/Views/NoteTheme.cs)에서 관리합니다.
 
 ```text
