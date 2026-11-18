@@ -16,6 +16,7 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 1 && args[0] == "--desktop-report") { DesktopVisibilityProbe.Run(); return 0; }
             if (args.Length > 0 && args[0] == "--crash-probe")
             {
                 if (args.Length != 1) throw new ArgumentException("Use --crash-probe without extra arguments.");

@@ -417,7 +417,10 @@ public sealed class DesktopNoteHost : IDisposable
         if (!NativeMethods.IsWindow(_parent) || !OwnsSurface()) throw new Win32Exception("바탕화면 창이 더 이상 유효하지 않습니다.");
         var origin = ParentOrigin();
         int height = _view.IsCollapsed ? (int)(NoteTheme.CollapsedHeight * _scale) : _bounds.Height;
-        if (!NativeMethods.SetWindowPos(Handle, 0, _bounds.X - origin.X, _bounds.Y - origin.Y, _bounds.Width, height, NativeMethods.SwpNoActivate | NativeMethods.SwpNoZOrder))
+        // HWND_TOP (0) orders our child above the desktop's full-size icon view.
+        // SWP_NOZORDER left it behind that opaque sibling. This does not make it
+        // a top-level or topmost window and does not activate the desktop.
+        if (!NativeMethods.SetWindowPos(Handle, 0, _bounds.X - origin.X, _bounds.Y - origin.Y, _bounds.Width, height, NativeMethods.SwpNoActivate))
             throw new Win32Exception(Marshal.GetLastWin32Error());
         // A child HWND has no DWM frame; clip it to the same modest paper radius.
         var shape = (_bounds.Width, height, (int)(10 * _scale));
