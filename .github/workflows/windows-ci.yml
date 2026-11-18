@@ -41,6 +41,8 @@ jobs:
       # --shell-probe requires a logged-in desktop and stays a local check.
       - name: Run automated checks
         run: dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll
+      - name: Check long-run monitor reports
+        run: dotnet tools/WindowsMemo.Monitor/bin/Release/net10.0-windows/WindowsMemo.Monitor.dll --self-test
       - name: Run isolated crash recovery probe
         run: dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll --crash-probe
       - name: Smoke test recovery window lifetime

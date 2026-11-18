@@ -2,7 +2,7 @@
 
 바탕화면에 붙여 두고 바로 적는 Windows 메모 앱입니다. 다른 프로그램을 사용할 때는 그 뒤에 놓이고, **Win+D로 바탕화면을 볼 때도 메모를 확인할 수 있도록** 구현했습니다.
 
-**0.9.16 prototype** · Windows 11 x64 · C# / .NET 10 / WPF
+**0.9.18 prototype** · Windows 11 x64 · C# / .NET 10 / WPF
 현재는 소스에서 빌드하는 개발 버전입니다. 공개 배포와 설치본 업데이트 검증은 진행 중입니다.
 
 [빠른 시작](#빠른-시작) · [사용 방법](#사용-방법) · [저장과 복구](#저장과-복구) · [개발과 검증](#개발과-검증)
@@ -34,7 +34,7 @@ dotnet build WindowsMemo.slnx --configuration Release -p:RestoreLockedMode=true
 .\src\WindowsMemo\bin\Release\net10.0-windows\WindowsMemo.exe
 ```
 
-Visual Studio에서는 `WindowsMemo.slnx`를 열고 `WindowsMemo`를 시작 프로젝트로 선택합니다. 메모가 보이지 않으면 알림 영역의 Windows 메모 아이콘을 더블클릭해 목록을 여세요.
+Visual Studio에서는 `WindowsMemo.slnx`를 열고 `WindowsMemo`를 시작 프로젝트로 선택합니다. 직접 실행하면 메모 목록도 함께 열립니다. 이미 실행 중인 경우 EXE를 다시 실행하면 기존 앱의 목록을 엽니다. 로그인 자동 실행에서는 목록을 자동으로 열지 않습니다. 트레이 아이콘을 더블클릭해도 목록을 열 수 있습니다.
 
 바탕화면 부착을 제외하고 편집·저장을 확인하는 일반 창 진단 모드도 있습니다. 별도 데이터 폴더를 사용하며 일반 앱과 동시에 실행할 수 없습니다.
 
@@ -131,6 +131,8 @@ flowchart TD
 암호화는 저장한 Windows 계정과 PC에서 사용하는 것을 전제로 합니다. 다른 계정·PC로 옮기는 내보내기는 아직 없으며 같은 계정의 다른 프로그램이나 화면·클립보드까지 보호하지는 않습니다. [보안 설계](docs/SECURITY.md)에 범위를 설명했습니다.
 
 ## 개발과 검증
+
+데스크톱에서 실제 앱을 8/24시간 사용하며 메모리·CPU·핸들·GUI 자원을 기록하려면 [장시간 사용 기록 안내](docs/LONG-RUN-TEST.md)를 참고하세요. 별도 감시 도구와 런타임 포함 시험 ZIP을 제공하며 메모 본문은 수집하지 않습니다.
 
 기존 **WPF UI와 WinForms 트레이**를 유지합니다. 디자인 값은 [NoteTheme.cs](src/WindowsMemo/Views/NoteTheme.cs)에서 관리합니다.
 
