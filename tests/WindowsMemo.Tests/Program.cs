@@ -133,6 +133,7 @@ internal static class Program
             SessionEndingTests.Run(Check);
             WorkspaceDisposalTests.Run(Check);
             StartupTests.Run(Check);
+            InstanceActivationTests.Run(Check);
             UpdateTests.Run(Check);
             UpdateDownloadTests.Run(Check);
             UpdatePackageTests.Run(Check);
