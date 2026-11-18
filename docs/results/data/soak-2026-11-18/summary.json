@@ -1,0 +1,12 @@
+﻿{
+    "status":  "completed",
+    "process_name":  "WindowsMemo",
+    "process_start_utc":  "2026-11-18T08:56:22.3278336Z",
+    "finished_utc":  "2026-11-18T16:56:57.4100588Z",
+    "requested_seconds":  28800,
+    "elapsed_seconds":  28800.013,
+    "interval_seconds":  60,
+    "logical_processors":  12,
+    "sample_count":  481,
+    "error":  null
+}

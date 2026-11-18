@@ -174,6 +174,8 @@ dotnet tests/WindowsMemo.Tests/bin/Release/net10.0-windows/WindowsMemo.Tests.dll
 
 자동 검사와 비표시 창 검증은 실제 화면·입력·장시간 안정성 시험을 대신하지 않습니다. 이전 성능·수명 측정과 한계는 [중간 점검 기록](docs/results/REVIEW-14.md)에서 확인할 수 있습니다.
 
+실제 앱의 8시간 상주 측정은 [시험 준비와 측정 안내](docs/APP-SOAK-TEST.md)를 따릅니다.
+
 ## 더 알아보기
 
 - [요구사항](docs/REQUIREMENTS.md) · [설계](docs/DESIGN.md) · [작업 목록](docs/BACKLOG.md)
