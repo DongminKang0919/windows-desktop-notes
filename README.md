@@ -27,11 +27,14 @@
 
 **Windows 11 x64**와 **.NET 10 SDK**가 필요합니다. SDK 버전은 [global.json](global.json)에서 관리합니다. 앱은 관리자 권한을 요구하지 않습니다.
 
-프로젝트 루트의 PowerShell에서 실행합니다.
+앞으로는 프로젝트 최상위의 **메모 실행.cmd**를 더블클릭하면 됩니다. 앱이 꺼져 있으면 현재 소스를 빌드하고 고정 위치의 EXE를 실행합니다. 실행 중이면 기존 앱의 목록을 엽니다. 코드를 갱신한 뒤에는 기존 앱을 저장 후 종료하고 다시 실행하세요.
+
+PowerShell에서도 같은 고정 실행 파일을 사용합니다.
 
 ```powershell
-dotnet build WindowsMemo.slnx --configuration Release -p:RestoreLockedMode=true
-.\src\WindowsMemo\bin\Release\net10.0-windows\WindowsMemo.exe
+& '.\메모 실행.cmd'
+# 실행 없이 고정 위치의 EXE만 최신 빌드:
+& '.\메모 실행.cmd' --build-only
 ```
 
 Visual Studio에서는 `WindowsMemo.slnx`를 열고 `WindowsMemo`를 시작 프로젝트로 선택합니다. 기본 설정에서는 직접 실행하면 메모 목록도 함께 열립니다. 설정에서 이 동작을 끌 수 있습니다. 이미 실행 중인 경우 EXE를 다시 실행하면 기존 앱의 목록을 엽니다. 로그인 자동 실행에서는 목록을 자동으로 열지 않습니다. 트레이 아이콘을 더블클릭해도 목록을 열 수 있습니다.
@@ -39,10 +42,12 @@ Visual Studio에서는 `WindowsMemo.slnx`를 열고 `WindowsMemo`를 시작 프�
 바탕화면 부착을 제외하고 편집·저장을 확인하는 일반 창 진단 모드도 있습니다. 별도 데이터 폴더를 사용하며 일반 앱과 동시에 실행할 수 없습니다.
 
 ```powershell
-.\src\WindowsMemo\bin\Release\net10.0-windows\WindowsMemo.exe --window
+& '.\메모 실행.cmd' --window
 ```
 
 `dotnet`을 찾지 못하면 SDK 설치 후 PowerShell을 새로 열어 주세요. ZIP·설치 파일 만들기는 [배포 개발 안내](docs/DISTRIBUTION.md)에 분리했습니다.
+
+실제 개발 EXE는 항상 `src/WindowsMemo/bin/Release/net10.0-windows/WindowsMemo.exe`에 놓입니다. `artifacts`의 GUID·검증 폴더는 시험 출력이며 평소 실행 경로로 사용하지 않습니다. 고정 실행 파일과 검증 출력은 분리해 관리합니다.
 
 ## 사용 방법
 
