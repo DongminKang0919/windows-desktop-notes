@@ -18,6 +18,8 @@ internal static class Program
         {
             if (args.Length == 1 && args[0] == "--desktop-report") { DesktopVisibilityProbe.Run(); return 0; }
             if (args.Length == 1 && args[0] == "--settings-render") { SettingsTitleTests.Render(); return 0; }
+            if (args.Length == 1 && args[0] == "--note-list-only")
+            { NoteListTests.Run(Check); Console.WriteLine($"PASS: {_passed} note management checks."); return 0; }
             if (args.Length > 0 && args[0] == "--crash-probe")
             {
                 if (args.Length != 1) throw new ArgumentException("Use --crash-probe without extra arguments.");

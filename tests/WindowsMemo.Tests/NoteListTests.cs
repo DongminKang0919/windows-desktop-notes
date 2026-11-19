@@ -60,6 +60,115 @@ internal static class NoteListTests
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
         try
         {
+            check("통합 관리: 제목 검색·상태 필터·탭 전환은 파일 읽기 없이 선택과 범위 유지", () =>
+            {
+                using var f = new Fixture(); var window = new NoteListWindow(f.Workspace);
+                try
+                {
+                    string[] before = Fingerprint(f.Root);
+                    var search = Visuals((Grid)window.Content).OfType<TextBox>().Single();
+                    var filter = Visuals((Grid)window.Content).OfType<ComboBox>().Single();
+                    using (var locked = new FileStream(new FileNoteRepository(f.Root, f.First).PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                    {
+                        search.Text = "  주말  "; Require(List(window).Items.Count == 2);
+                        SaveManagerPreview(window, "manager-search-150.png");
+                        List(window).SelectedIndex = 0; Guid selected = ((NoteListItem)List(window).SelectedItem).Id;
+                        window.Navigate(NoteListWindow.Section.Archive); Require(List(window).Items.Count == 0);
+                        Require(Visuals((Grid)window.Content).OfType<TextBlock>().Any(text => text.Text.StartsWith("일치하는 메모가 없습니다.") && text.Visibility == Visibility.Visible));
+                        SaveManagerPreview(window, "manager-no-results-150.png");
+                        window.Navigate(NoteListWindow.Section.Notes); Require(((NoteListItem)List(window).SelectedItem).Id == selected);
+                        filter.SelectedIndex = 1; Require(List(window).Items.Count == 0);
+                        filter.SelectedIndex = 2; Require(List(window).Items.Count == 2);
+                        filter.SelectedIndex = 3; Require(List(window).Items.Count == 0);
+                        filter.SelectedIndex = 0; search.Clear();
+                        window.Navigate(NoteListWindow.Section.Archive); Require(List(window).Items.Count == 1);
+                        search.Text = "읽고"; Require(List(window).Items.Count == 1);
+                        window.Navigate(NoteListWindow.Section.Trash); Require(List(window).Items.Count == 0);
+                        search.Text = "정리"; Require(List(window).Items.Count == 1);
+                    }
+                    Require(before.SequenceEqual(Fingerprint(f.Root)) && f.Surfaces.Count == 0);
+                    window.Navigate(NoteListWindow.Section.Notes); search.Clear();
+                    Require(Wait(f.Workspace.ShowAsync(f.First)));
+                    search.Text = "바뀐 제목"; Require(List(window).Items.Count == 0);
+                    f.Surfaces.Single().View.SetCustomTitle("바뀐 제목"); Require(List(window).Items.Count == 1);
+                    Require(Wait(f.Workspace.HideAsync(f.First)));
+                    Require(List(window).Items.Count == 1);
+                }
+                finally { window.Close(); }
+            });
+            check("삭제 실행 취소: 실패 시 휴지통/취소 대상 보존·재시도·보관함 복귀·새 삭제 우선", () =>
+            {
+                using var f = new Fixture(); var window = new NoteListWindow(f.Workspace);
+                try
+                {
+                    List(window).SelectedItem = List(window).Items.OfType<NoteListItem>().Single(item => item.Id == f.First);
+                    Click(Action(window, "휴지통으로 이동")); Wait(Until(() => !f.Workspace.IsBusy));
+                    Require(f.Workspace.CanUndoTrash && f.Workspace.LastTrashedId == f.First);
+                    var undo = Visuals((Grid)window.Content).OfType<Button>().Single(button => Equals(button.Content, "삭제 실행 취소"));
+                    Require(undo.Visibility == Visibility.Visible);
+                    SaveManagerPreview(window, "manager-undo-150.png");
+                    string[] before = Fingerprint(f.Root);
+                    using (var locked = new FileStream(new FileNoteRepository(f.Root, f.First).PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                    {
+                        Click(undo); window.Navigate(NoteListWindow.Section.Archive);
+                        Require(window.CurrentSection == NoteListWindow.Section.Notes);
+                        Wait(Until(() => Feedback(window).Text.Contains("취소하지 못했습니다")));
+                        Require(f.Workspace.CanUndoTrash);
+                    }
+                    Require(before.SequenceEqual(Fingerprint(f.Root)));
+                    Click(undo); Wait(Until(() => Feedback(window).Text.Contains("취소했습니다")));
+                    Require(!f.Workspace.CanUndoTrash && ((NoteListItem)List(window).SelectedItem).Id == f.First);
+                    Require(Wait(f.Workspace.TrashAsync(f.Archive)));
+                    Require(Wait(f.Workspace.UndoTrashAsync()));
+                    Require(f.Workspace.ArchiveItems.Any(item => item.Id == f.Archive));
+                    Require(Wait(f.Workspace.TrashAsync(f.First)) && Wait(f.Workspace.TrashAsync(f.Second)));
+                    Require(f.Workspace.LastTrashedId == f.Second && Wait(f.Workspace.UndoTrashAsync()));
+                    Require(f.Workspace.TrashItems.Any(item => item.Id == f.First) && !f.Workspace.CanUndoTrash);
+                    using var restarted = f.Open(); Wait(restarted.InitializeAsync());
+                    Require(restarted.Items.Any(item => item.Id == f.Second) && restarted.ArchiveItems.Any(item => item.Id == f.Archive));
+                    Require(!restarted.CanUndoTrash);
+                }
+                finally { window.Close(); }
+            });
+            check("휴지통 접근: 목록에서 삭제·휴지통 열기·복원·목록 복귀·재실행 보존", () =>
+            {
+                using var f = new Fixture();
+                var notes = new NoteListWindow(f.Workspace);
+                try
+                {
+                    Require(Wait(f.Workspace.ShowAsync(f.First)));
+                    var view = f.Surfaces.Single().View;
+                    view.SetCustomTitle("실수로 삭제한 제목");
+                    byte[] body = RtfDocumentCodec.Save(view.TextEditor.Document);
+                    List(notes).SelectedItem = List(notes).Items.OfType<NoteListItem>().Single(item => item.Id == f.First);
+                    Click(Action(notes, "휴지통으로 이동"));
+                    Wait(Until(() => !f.Workspace.IsBusy && f.Workspace.TrashItems.Any(item => item.Id == f.First)));
+                    Require(!f.Workspace.Items.Any(item => item.Id == f.First));
+                    var openTrash = Visuals((Grid)notes.Content).OfType<Button>().Single(button => Equals(button.Content, "휴지통"));
+                    Click(openTrash); Require(notes.CurrentSection == NoteListWindow.Section.Trash);
+                    List(notes).SelectedItem = List(notes).Items.OfType<NoteListItem>().Single(item => item.Id == f.First);
+                    Click(Action(notes, "선택한 메모 복원"));
+                    Wait(Until(() => !f.Workspace.IsBusy && f.Workspace.Items.Any(item => item.Id == f.First)));
+                    Require(f.Workspace.Items.Single(item => item.Id == f.First).Hidden);
+                    Require(!f.Workspace.TrashItems.Any(item => item.Id == f.First));
+                    Require(Feedback(notes).Text.Contains("복원했습니다"));
+                    SaveManagerPreview(notes, "manager-restored-150.png");
+                    Visuals((Grid)notes.Content).OfType<TextBox>().Single().Text = "일치하지 않는 검색";
+                    Click(Visuals((Grid)notes.Content).OfType<Button>().Single(button => Equals(button.Content, "복원한 메모 열기")));
+                    Wait(Until(() => !f.Workspace.IsBusy && !f.Workspace.Items.Single(item => item.Id == f.First).Hidden));
+                    Require(notes.CurrentSection == NoteListWindow.Section.Notes && ((NoteListItem)List(notes).SelectedItem).Id == f.First);
+                    Require(Wait(f.Workspace.FlushAllAsync()));
+                    using var restarted = f.Open(); Wait(restarted.InitializeAsync());
+                    Require(restarted.Items.Single(item => item.Id == f.First).Title == "실수로 삭제한 제목");
+                    var saved = new FileNoteRepository(f.Root, f.First).Load(record => RtfDocumentCodec.Load(record.Rtf), out _)!;
+                    Require(saved.DeletedAtUtc is null && saved.Bounds == new NoteBounds(48, 64, 320, 300));
+                    Require(saved.Rtf.SequenceEqual(body));
+                    Require(Wait(restarted.ShowAsync(f.First)));
+                    Require(f.Surfaces.Last().View.NoteTitle == "실수로 삭제한 제목");
+                    notes.Close(); Click(openTrash); Require(notes.CurrentSection == NoteListWindow.Section.Notes);
+                }
+                finally { notes.Close(); }
+            });
             check("메모 제목: 숨김·보관·휴지통 복원 시 첫 줄 요약·길이·손상 파일 보존", () =>
             {
                 using var f = new Fixture(); Require(f.Surfaces.Count == 0);
@@ -81,7 +190,7 @@ internal static class NoteListTests
                 try
                 {
                     var layout = (Grid)window.Content;
-                    layout.Measure(new Size(432, 376)); layout.Arrange(new Rect(0, 0, 432, 376)); layout.UpdateLayout();
+                    layout.Measure(new Size(432, 496)); layout.Arrange(new Rect(0, 0, 432, 496)); layout.UpdateLayout();
                     var list = List(window); list.SelectedItem = list.Items.OfType<NoteListItem>().Single(item => item.Id == f.First);
                     Click(Action(window, "선택한 메모 열기")); Wait(Until(() => !f.Workspace.IsBusy && f.Surfaces.Count == 1));
                     var view = f.Surfaces.Single().View; view.TextEditor.SelectAll(); view.InsertPlainText("새로운 첫 줄");
@@ -135,13 +244,17 @@ internal static class NoteListTests
                             var layout = (Grid)window.Content; string images = Path.Combine(AppContext.BaseDirectory, "ui-previews"); Directory.CreateDirectory(images);
                             foreach (double scale in new[] { 1.0, 1.5, 2.0 })
                             {
-                                layout.Measure(new Size(432, 376)); layout.Arrange(new Rect(0, 0, 432, 376)); layout.UpdateLayout();
+                                layout.Measure(new Size(432, 496)); layout.Arrange(new Rect(0, 0, 432, 496)); layout.UpdateLayout();
                                 Require(Action(window, mode == "notes" ? "새 메모" : "선택한 메모 복원").ActualHeight >= 28);
-                                NoteDesignTests.Save(layout, 432, 376, scale, Path.Combine(images, $"{mode}-list-{(int)(scale * 100)}.png"));
+                                NoteDesignTests.Save(layout, 432, 496, scale, Path.Combine(images, $"{mode}-list-{(int)(scale * 100)}.png"));
                             }
                             // The root's 22-DIP margin is included in its available size.
-                            layout.Measure(new Size(336, 340)); layout.Arrange(new Rect(0, 0, 336, 340)); layout.UpdateLayout();
+                            layout.Measure(new Size(336, 460)); layout.Arrange(new Rect(0, 0, 336, 460)); layout.UpdateLayout();
                             Require(List(window).ActualHeight >= 52, $"Narrow {mode}: root {layout.ActualWidth}x{layout.ActualHeight}, list height {List(window).ActualHeight}.");
+                            NoteDesignTests.Save(layout, 336, 460, 1.5, Path.Combine(images, $"{mode}-narrow-150.png"));
+                            List(window).SelectedIndex = 0;
+                            layout.Measure(new Size(432, 496)); layout.Arrange(new Rect(0, 0, 432, 496)); layout.UpdateLayout();
+                            NoteDesignTests.Save(layout, 432, 496, 1.5, Path.Combine(images, $"{mode}-selected-150.png"));
                         }
                         finally { window.Close(); }
                     }
@@ -187,10 +300,10 @@ internal static class NoteListTests
                             var layout = (Grid)window.Content; string images = Path.Combine(AppContext.BaseDirectory, "ui-previews"); Directory.CreateDirectory(images);
                             foreach (double scale in new[] { 1.0, 1.5, 2.0 })
                             {
-                                layout.Measure(new Size(432, 376)); layout.Arrange(new Rect(0, 0, 432, 376)); layout.UpdateLayout();
-                                NoteDesignTests.Save(layout, 432, 376, scale, Path.Combine(images, $"{mode}-feedback-{(int)(scale * 100)}.png"));
+                                layout.Measure(new Size(432, 496)); layout.Arrange(new Rect(0, 0, 432, 496)); layout.UpdateLayout();
+                                NoteDesignTests.Save(layout, 432, 496, scale, Path.Combine(images, $"{mode}-feedback-{(int)(scale * 100)}.png"));
                             }
-                            layout.Measure(new Size(336, 340)); layout.Arrange(new Rect(0, 0, 336, 340)); layout.UpdateLayout();
+                            layout.Measure(new Size(336, 460)); layout.Arrange(new Rect(0, 0, 336, 460)); layout.UpdateLayout();
                             Require(List(window).ActualHeight >= 52 && Action(window, action).ActualHeight >= 28 && feedback.ActualHeight > 0);
                         }
                         Require(before.SequenceEqual(Fingerprint(f.Root)));
@@ -251,10 +364,18 @@ internal static class NoteListTests
     private static WeakReference ClosedWindow(NoteWorkspace workspace)
     {
         var window = new NoteListWindow(workspace); var layout = (Grid)window.Content;
-        layout.Measure(new Size(432, 376)); layout.Arrange(new Rect(0, 0, 432, 376)); layout.UpdateLayout();
+        layout.Measure(new Size(432, 496)); layout.Arrange(new Rect(0, 0, 432, 496)); layout.UpdateLayout();
         window.Close(); return new(window);
     }
     private static ListBox List(Window window) => ((Grid)window.Content).Children.OfType<ListBox>().Single();
+    private static void SaveManagerPreview(Window window, string name)
+    {
+        var layout = (Grid)window.Content;
+        layout.Measure(new Size(432, 496)); layout.Arrange(new Rect(0, 0, 432, 496)); layout.UpdateLayout();
+        Wait(Task.Delay(10)); layout.UpdateLayout();
+        string images = Path.Combine(AppContext.BaseDirectory, "ui-previews"); Directory.CreateDirectory(images);
+        NoteDesignTests.Save(layout, 432, 496, 1.5, Path.Combine(images, name));
+    }
     private static IEnumerable<DependencyObject> Visuals(DependencyObject root)
     {
         yield return root;

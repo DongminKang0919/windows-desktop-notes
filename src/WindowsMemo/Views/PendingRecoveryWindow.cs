@@ -34,13 +34,15 @@ internal sealed class PendingRecoveryWindow : Window
 
     internal PendingRecoveryWindow(NoteWorkspace workspace, Action showList, Func<Guid, Task<PendingNotePreview>>? readPreview = null)
     {
+        NoteTheme.Apply(this);
+        _recover.Style = (Style)FindResource("PrimaryButton");
         _workspace = workspace;
         _readPreview = readPreview ?? workspace.PreviewPendingAsync;
         Title = "Windows 메모 · 미완료 메모 복구";
         Width = 620; Height = 620; MinWidth = 380; MinHeight = 420;
         FontFamily = NoteTheme.Font; Foreground = NoteTheme.Ink;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        var layout = new Grid { Margin = new Thickness(22), Background = SystemColors.WindowBrush };
+        var layout = new Grid { Margin = NoteTheme.WindowPadding, Background = NoteTheme.Surface };
         foreach (var height in new[] { GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto, new GridLength(2, GridUnitType.Star), GridLength.Auto })
             layout.RowDefinitions.Add(new RowDefinition { Height = height });
         var help = new TextBlock

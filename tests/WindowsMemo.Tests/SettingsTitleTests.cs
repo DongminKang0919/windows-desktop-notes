@@ -147,9 +147,11 @@ internal static class SettingsTitleTests
             var children = Visuals(layout).ToArray();
             var width = children.OfType<TextBox>().Single(t => System.Windows.Automation.AutomationProperties.GetName(t) == "새 메모 너비");
             width.Text = "500";
+            var paper = children.OfType<ComboBox>().Single();
+            paper.SelectedIndex = 1;
             var save = children.OfType<Button>().Single(b => Equals(b.Content, "설정 저장"));
             save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Wait(Until(() => save.IsEnabled));
-            Assert(settings.Current.NoteWidth == 500);
+            Assert(settings.Current.NoteWidth == 500 && settings.Current.DefaultPaper == "Sage");
             Assert(children.OfType<Button>().Single(b => Equals(b.Content, "진단 모드에서는 자동 실행 변경 불가")).IsEnabled == false);
             window.Close();
             var title = new NoteTitleWindow("시험 제목"); title.Close();
@@ -159,7 +161,7 @@ internal static class SettingsTitleTests
     {
         string folder = Path.Combine(AppContext.BaseDirectory, "settings-title-renders"); Directory.CreateDirectory(folder);
         var settings = new SettingsWindow(new SettingsService(Root()), null);
-        RenderElement((FrameworkElement)settings.Content, 416, 480, Path.Combine(folder, "settings.png")); settings.Close();
+        RenderElement((FrameworkElement)settings.Content, 436, 540, Path.Combine(folder, "settings.png")); settings.Close();
         var title = new NoteTitleWindow("이번 주 할 일");
         RenderElement((FrameworkElement)title.Content, 352, 280, Path.Combine(folder, "title.png")); title.Close();
         using var view = new NoteView(); view.SetCustomTitle("이번 주 할 일"); view.InsertPlainText("본문 첫 줄과 제목은 별개입니다.\n☐ 디자인 확인\n☐ 메모 정리");

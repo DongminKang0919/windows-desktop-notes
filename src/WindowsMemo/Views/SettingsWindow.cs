@@ -24,8 +24,9 @@ internal sealed class SettingsWindow : Window
 
     internal SettingsWindow(SettingsService settings, StartupService? startup)
     {
+        NoteTheme.Apply(this);
         _settings = settings; _startup = startup;
-        Title = "Windows 메모 · 설정"; Width = 460; Height = 550; MinWidth = 380; MinHeight = 460;
+        Title = "Windows 메모 · 설정"; Width = 480; Height = 610; MinWidth = 380; MinHeight = 460;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = NoteTheme.Surface; Foreground = NoteTheme.Ink; FontFamily = NoteTheme.Font; FontSize = NoteTheme.BodySize;
         var grid = new Grid { Margin = NoteTheme.WindowPadding, Background = NoteTheme.Surface };
@@ -33,7 +34,9 @@ internal sealed class SettingsWindow : Window
         grid.RowDefinitions.Add(new RowDefinition());
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.Children.Add(new TextBlock { Text = "설정", FontSize = 24, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 16) });
-        var scroll = new ScrollViewer { Content = _fields, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var card = new Border { Background = System.Windows.Media.Brushes.White, BorderBrush = NoteTheme.Line,
+            BorderThickness = new Thickness(1), CornerRadius = NoteTheme.CornerRadius, Padding = new Thickness(18), Child = _fields };
+        var scroll = new ScrollViewer { Content = card, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         Grid.SetRow(scroll, 1); grid.Children.Add(scroll);
         _fields.Children.Add(new TextBlock { Text = "새 메모 기본값", FontWeight = FontWeights.SemiBold });
         _fields.Children.Add(new TextBlock { Text = "색상과 크기는 앞으로 만드는 메모에 적용됩니다.", TextWrapping = TextWrapping.Wrap, Foreground = NoteTheme.MutedInk, Margin = new Thickness(0, 6, 0, 12) });
@@ -42,7 +45,7 @@ internal sealed class SettingsWindow : Window
             _paper.Items.Add(new ComboBoxItem { Content = label, Tag = value });
         _paper.SelectedItem = _paper.Items.Cast<ComboBoxItem>().Single(i => (string)i.Tag == settings.Current.DefaultPaper);
         _fields.Children.Add(_paper);
-        _fields.Children.Add(new TextBlock { Text = "기본 크기 (화면 배율 기준)", Margin = new Thickness(0, 14, 0, 6) });
+        _fields.Children.Add(new TextBlock { Text = "새 메모 크기", Margin = new Thickness(0, 18, 0, 8) });
         var size = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
         size.Children.Add(new TextBlock { Text = "너비 ", VerticalAlignment = VerticalAlignment.Center }); size.Children.Add(_width);
         size.Children.Add(new TextBlock { Text = "  × 높이 ", VerticalAlignment = VerticalAlignment.Center }); size.Children.Add(_height);
@@ -64,6 +67,8 @@ internal sealed class SettingsWindow : Window
         var close = new Button { Content = "닫기", IsCancel = true, Padding = NoteTheme.ActionPadding, Margin = new Thickness(0, 0, 8, 0) };
         close.Click += (_, _) => Close();
         _save.HorizontalAlignment = HorizontalAlignment.Right;
+        _save.Style = (Style)FindResource("PrimaryButton");
+        _status.Foreground = NoteTheme.MutedInk;
         footer.Children.Add(close); footer.Children.Add(_save);
         Grid.SetRow(footer, 2); grid.Children.Add(footer); Content = grid;
         _save.Click += Save;

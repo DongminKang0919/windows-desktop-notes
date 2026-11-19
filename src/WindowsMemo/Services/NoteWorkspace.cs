@@ -49,14 +49,22 @@ internal sealed class NoteWorkspace : IDisposable
     public event EventHandler? Changed;
     public event EventHandler? ListRequested;
     public event EventHandler? ArchiveListRequested;
+    public event EventHandler? TrashListRequested;
     public event EventHandler? SettingsRequested;
     internal SettingsService Settings { get; }
     internal void RequestSettings() { if (!_disposed) SettingsRequested?.Invoke(this, EventArgs.Empty); }
+    internal void RequestTrashList() { if (!_disposed) TrashListRequested?.Invoke(this, EventArgs.Empty); }
+    internal void RequestList() { if (!_disposed) ListRequested?.Invoke(this, EventArgs.Empty); }
     public event EventHandler<string>? Notice;
     public IReadOnlyList<NoteListItem> Items => List(false);
     public IReadOnlyList<NoteListItem> TrashItems => List(true);
     public IReadOnlyList<NoteListItem> ArchiveItems => List(false, true);
     private Guid? _lastArchived;
+    private Guid? _lastTrashed;
+    private bool _lastTrashWasArchived;
+    public bool CanUndoTrash => _lastTrashed is { } id && _entries.TryGetValue(id, out var entry) && entry.Trashed;
+    public Guid? LastTrashedId => CanUndoTrash ? _lastTrashed : null;
+    public Task<bool> UndoTrashAsync() => CanUndoTrash ? RestoreCoreAsync(_lastTrashed!.Value, _lastTrashWasArchived) : Task.FromResult(false);
     public bool CanUndoArchive => _lastArchived is { } id && _entries.TryGetValue(id, out var entry) && entry.Archived;
     private IReadOnlyList<NoteListItem> List(bool trashed, bool archived = false) => _entries.Where(pair => pair.Value.Trashed == trashed && pair.Value.Archived == archived)
         .Select(pair => new NoteListItem(pair.Key, pair.Value.Hidden, pair.Value.Error, pair.Value.Trashed, pair.Value.Archived, pair.Value.Title)).ToArray();
@@ -273,6 +281,7 @@ internal sealed class NoteWorkspace : IDisposable
     public async Task<bool> TrashAsync(Guid id)
     {
         if (IsBusy || !_entries.TryGetValue(id, out var entry) || entry.Trashed) return false;
+        bool wasArchived = entry.Archived;
         _busy = true; Publish();
         try
         {
@@ -293,12 +302,14 @@ internal sealed class NoteWorkspace : IDisposable
             }
             if (_disposed) return false;
             entry.Trashed = true; entry.Hidden = true; entry.Archived = false; entry.Error = null;
+            _lastTrashed = id; _lastTrashWasArchived = wasArchived;
             return true;
         }
         catch (Exception ex) when (IsNoteError(ex)) { entry.Error = "휴지통 이동 실패 · 파일 보존"; return false; }
         finally { _busy = false; Publish(); }
     }
-    public async Task<bool> RestoreAsync(Guid id)
+    public Task<bool> RestoreAsync(Guid id) => RestoreCoreAsync(id, archived: false);
+    private async Task<bool> RestoreCoreAsync(Guid id, bool archived)
     {
         if (IsBusy || !_entries.TryGetValue(id, out var entry) || !entry.Trashed) return false;
         _busy = true; Publish();
@@ -308,10 +319,10 @@ internal sealed class NoteWorkspace : IDisposable
             if (_disposed) return false;
             if (loaded.Record?.DeletedAtUtc is null) return false;
             await Task.Run(() => entry.Repository.Save(loaded.Record with
-                { SchemaVersion = NoteRecord.CurrentSchema, Hidden = true, DeletedAtUtc = null, UpdatedAtUtc = DateTimeOffset.UtcNow }));
+                { SchemaVersion = NoteRecord.CurrentSchema, Hidden = true, Archived = archived, DeletedAtUtc = null, UpdatedAtUtc = DateTimeOffset.UtcNow }));
             // Restore to the normal list, hidden; opening is a separate action.
             if (_disposed) return false;
-            entry.Trashed = false; entry.Hidden = true; entry.Error = null;
+            entry.Trashed = false; entry.Hidden = true; entry.Archived = archived; entry.Error = null;
             return true;
         }
         catch (Exception ex) when (IsNoteError(ex)) { entry.Error = "복원 실패 · 파일 보존"; return false; }
@@ -424,6 +435,6 @@ internal sealed class NoteWorkspace : IDisposable
         _disposed = true;
         foreach (var entry in _entries.Values) entry.Session?.Dispose();
         _entries.Clear();
-        Changed = null; ListRequested = null; ArchiveListRequested = null; SettingsRequested = null; Notice = null;
+        Changed = null; ListRequested = null; ArchiveListRequested = null; TrashListRequested = null; SettingsRequested = null; Notice = null;
     }
 }

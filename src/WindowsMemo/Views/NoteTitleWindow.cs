@@ -11,6 +11,7 @@ internal sealed class NoteTitleWindow : Window
 
     internal NoteTitleWindow(string title)
     {
+        NoteTheme.Apply(this);
         Title = "메모 제목 변경";
         Width = 400; SizeToContent = SizeToContent.Height; ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -26,6 +27,7 @@ internal sealed class NoteTitleWindow : Window
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         var cancel = new Button { Content = "취소", IsCancel = true, Padding = NoteTheme.ActionPadding, Margin = new Thickness(0, 8, 8, 0) };
         var save = new Button { Content = "적용", IsDefault = true, Padding = NoteTheme.ActionPadding, Margin = new Thickness(0, 8, 0, 0) };
+        save.Style = (Style)FindResource("PrimaryButton");
         save.Click += (_, _) =>
         {
             if (!NoteTitleSummary.IsValidCustomTitle(Value)) { error.Text = "줄바꿈 없이 80자 이내로 입력하세요."; return; }

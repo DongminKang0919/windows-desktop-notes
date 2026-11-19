@@ -5,6 +5,8 @@
  FontFamily="{x:Static local:NoteTheme.Font}" FontSize="{x:Static local:NoteTheme.BodySize}"
  Foreground="{x:Static local:NoteTheme.Ink}" UseLayoutRounding="True" SnapsToDevicePixels="True">
  <UserControl.Resources>
+  <ResourceDictionary>
+  <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="NoteStyles.xaml"/></ResourceDictionary.MergedDictionaries>
   <Style x:Key="Tool" TargetType="Button">
    <Setter Property="Width" Value="{x:Static local:NoteTheme.ToolSize}"/>
    <Setter Property="Height" Value="{x:Static local:NoteTheme.ToolSize}"/>
@@ -20,28 +22,31 @@
      <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Face" Property="Background" Value="#20000000"/></Trigger>
     </ControlTemplate.Triggers>
    </ControlTemplate></Setter.Value></Setter>
-   <Setter Property="Opacity" Value="0"/>
+   <Setter Property="Opacity" Value="0.48"/>
    <Style.Triggers>
     <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True"><Setter Property="Opacity" Value="1"/></DataTrigger>
     <DataTrigger Binding="{Binding IsKeyboardFocusWithin, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True"><Setter Property="Opacity" Value="1"/></DataTrigger>
     <Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="Opacity" Value="1"/></Trigger>
    </Style.Triggers>
   </Style>
+  </ResourceDictionary>
  </UserControl.Resources>
  <Border Background="#18000000" CornerRadius="{x:Static local:NoteTheme.CornerRadius}" Margin="0,0,1,1">
   <Border x:Name="PaperBorder" Background="{x:Static local:NoteTheme.Butter}"
    CornerRadius="{x:Static local:NoteTheme.CornerRadius}" Margin="0,0,1,2" BorderBrush="#12000000" BorderThickness="1">
    <Grid>
     <Grid.RowDefinitions><RowDefinition Height="3"/><RowDefinition Height="44"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <Border Background="#10000000" CornerRadius="4,4,0,0"/>
+    <Border Background="Transparent"/>
     <Grid Grid.Row="1" Margin="10,0">
      <Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/><ColumnDefinition Width="28"/><ColumnDefinition Width="28"/></Grid.ColumnDefinitions>
-     <Button Style="{StaticResource Tool}" Content="+" ToolTip="새 메모" AutomationProperties.Name="새 메모" Click="New_OnClick"/>
+     <Button Style="{StaticResource Tool}" ToolTip="새 메모" AutomationProperties.Name="새 메모" Click="New_OnClick">
+      <Path Data="M 8,1 L 8,15 M 1,8 L 15,8" Stroke="{x:Static local:NoteTheme.Ink}" StrokeThickness="1.5" Width="16" Height="16"/>
+     </Button>
      <Thumb x:Name="MoveGrip" Grid.Column="1" Cursor="SizeAll" DragDelta="MoveGrip_OnDragDelta" PreviewMouseLeftButtonDown="Header_OnMouseDown">
       <Thumb.Template><ControlTemplate TargetType="Thumb">
        <Border Background="Transparent" Padding="8,0">
         <Grid>
-         <TextBlock Text="{Binding NoteTitle, RelativeSource={RelativeSource AncestorType=local:NoteView}}" FontSize="{x:Static local:NoteTheme.TitleSize}" Foreground="{x:Static local:NoteTheme.Ink}"
+         <TextBlock Text="{Binding NoteTitle, RelativeSource={RelativeSource AncestorType=local:NoteView}}" FontSize="14" Foreground="{x:Static local:NoteTheme.Ink}"
           FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,16,0"/>
          <TextBlock Text="⠿" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{x:Static local:NoteTheme.MutedInk}" IsHitTestVisible="False">
           <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Opacity" Value="0"/>
@@ -54,7 +59,9 @@
        </Border>
       </ControlTemplate></Thumb.Template>
      </Thumb>
-     <Button Grid.Column="2" Style="{StaticResource Tool}" Content="✎" ToolTip="제목 변경 (F2)" AutomationProperties.Name="제목 변경" Click="Title_OnClick"/>
+     <Button Grid.Column="2" Style="{StaticResource Tool}" ToolTip="제목 변경 (F2)" AutomationProperties.Name="제목 변경" Click="Title_OnClick">
+      <Path Data="M 2,11 L 2,15 L 6,15 L 15,6 L 11,2 Z M 9,4 L 13,8" Stroke="{x:Static local:NoteTheme.Ink}" StrokeThickness="1.3" Width="18" Height="18"/>
+     </Button>
      <Button x:Name="MoreButton" Grid.Column="3" Style="{StaticResource Tool}" Content="⋯" ToolTip="더보기 (Alt+M)" AutomationProperties.Name="더보기" Click="More_OnClick"/>
     </Grid>
     <Grid x:Name="Body" Grid.Row="2" Margin="{x:Static local:NoteTheme.ContentPadding}">
@@ -65,7 +72,7 @@
       PreviewTextInput="Editor_OnPreviewTextInput" TextChanged="Editor_OnTextChanged">
       <FlowDocument PagePadding="0"><Paragraph Margin="0,0,0,8"/></FlowDocument>
      </RichTextBox>
-     <TextBlock x:Name="Placeholder" Text="생각을 적어보세요…" Foreground="#887D62" IsHitTestVisible="False" Margin="0,2,0,0"/>
+     <TextBlock x:Name="Placeholder" Text="여기서 시작해 보세요…" Foreground="{x:Static local:NoteTheme.MutedInk}" IsHitTestVisible="False" Margin="0,2,0,0"/>
     </Grid>
     <Grid x:Name="Footer" Grid.Row="3" Margin="22,0,12,10">
      <StackPanel Margin="0,0,20,0">
