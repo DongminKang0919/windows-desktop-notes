@@ -60,6 +60,36 @@ internal static class NoteListTests
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
         try
         {
+            check("사용자 백업: 기존 메모 보존·상태 복원·중복과 잘린 백업 차단", () =>
+            {
+                using var f = new Fixture();
+                string path = Path.Combine(f.Root, "notes.wmbackup");
+                var original = Fingerprint(f.Root);
+                var export = f.Workspace.ExportBackupAsync(path);
+                Wait(export);
+                Require(export.Result);
+                var malformed = Path.Combine(f.Root, "truncated.wmbackup");
+                byte[] bytes = File.ReadAllBytes(path);
+                File.WriteAllBytes(malformed, bytes[..^1]);
+                try
+                {
+                    Wait(f.Workspace.RestoreBackupAsync(malformed));
+                    throw new InvalidOperationException("잘린 백업을 복원했습니다.");
+                }
+                catch (InvalidDataException) { }
+                Require(f.Workspace.Items.Count == 2 && f.Workspace.ArchiveItems.Count == 1 && f.Workspace.TrashItems.Count == 1);
+
+                var restore = f.Workspace.RestoreBackupAsync(path);
+                Wait(restore);
+                Require(restore.Result == 4 && f.Workspace.Items.Count == 4
+                    && f.Workspace.ArchiveItems.Count == 2 && f.Workspace.TrashItems.Count == 2);
+                Require(original.All(Fingerprint(f.Root).Contains));
+                using var reopened = f.Open();
+                Wait(reopened.InitializeAsync());
+                var repeat = reopened.RestoreBackupAsync(path);
+                Wait(repeat);
+                Require(repeat.Result == 0 && reopened.Items.All(item => item.Hidden));
+            });
             check("통합 관리: 제목 검색·상태 필터·탭 전환은 파일 읽기 없이 선택과 범위 유지", () =>
             {
                 using var f = new Fixture(); var window = new NoteListWindow(f.Workspace);
@@ -217,6 +247,12 @@ internal static class NoteListTests
                     list.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent });
                     Wait(Until(() => !f.Workspace.IsBusy && f.Surfaces.Count == 1));
                     Require(f.Workspace.Items.Single(item => item.Id == f.First).Hidden && !f.Workspace.Items.Single(item => item.Id == f.Second).Hidden);
+                    Click(Action(window, "숨기기"));
+                    Wait(Until(() => !f.Workspace.IsBusy && f.Workspace.Items.Single(item => item.Id == f.Second).Hidden));
+                    Require(!Action(window, "숨기기").IsEnabled);
+                    Click(Action(window, "보관하기"));
+                    Wait(Until(() => !f.Workspace.IsBusy && f.Workspace.ArchiveItems.Any(item => item.Id == f.Second)));
+                    Wait(f.Workspace.UnarchiveAsync(f.Second));
                     var archive = new NoteListWindow(f.Workspace, archive: true); var trash = new NoteListWindow(f.Workspace, trash: true);
                     try
                     {

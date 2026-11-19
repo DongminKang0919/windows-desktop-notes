@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using Microsoft.Win32;
 using WindowsMemo.Infrastructure;
 using WindowsMemo.Models;
 using WindowsMemo.Services;
@@ -22,7 +23,7 @@ internal sealed class SettingsWindow : Window
     private bool _saving, _closed, _forceClose;
     internal void CloseForShutdown() { _forceClose = true; Close(); }
 
-    internal SettingsWindow(SettingsService settings, StartupService? startup)
+    internal SettingsWindow(SettingsService settings, StartupService? startup, NoteWorkspace? workspace = null)
     {
         NoteTheme.Apply(this);
         _settings = settings; _startup = startup;
@@ -62,6 +63,22 @@ internal sealed class SettingsWindow : Window
         _fields.Children.Add(new TextBlock { Text = "Windows 시작", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) });
         _fields.Children.Add(_startupButton);
         _fields.Children.Add(new TextBlock { Text = "자동 실행은 버튼을 누르면 바로 변경됩니다.", TextWrapping = TextWrapping.Wrap, FontSize = NoteTheme.MetaSize, Foreground = NoteTheme.MutedInk, Margin = new Thickness(0, 6, 0, 0) });
+        if (workspace is not null)
+        {
+            _fields.Children.Add(new Separator { Margin = new Thickness(0, 10, 0, 12) });
+            _fields.Children.Add(new TextBlock { Text = "메모 백업 및 복원", FontWeight = FontWeights.SemiBold });
+            var actions = new WrapPanel();
+            foreach (bool restore in new[] { false, true })
+            {
+                var button = new Button { Content = restore ? "백업에서 복원" : "백업 만들기",
+                    Padding = NoteTheme.ActionPadding, Margin = new Thickness(0, 8, 8, 0) };
+                button.Click += async (_, _) => await RunBackupAsync(workspace, restore);
+                actions.Children.Add(button);
+            }
+            _fields.Children.Add(actions);
+            _fields.Children.Add(new TextBlock { Text = "같은 Windows 계정에서 복원할 수 있습니다. 복원은 기존 메모를 보존하고 숨긴 사본을 추가합니다.",
+                Foreground = NoteTheme.MutedInk, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
+        }
         _fields.Children.Add(_status);
         var footer = new DockPanel { Margin = new Thickness(0, 16, 0, 0) };
         var close = new Button { Content = "닫기", IsCancel = true, Padding = NoteTheme.ActionPadding, Margin = new Thickness(0, 0, 8, 0) };
@@ -78,6 +95,46 @@ internal sealed class SettingsWindow : Window
         Closing += (_, e) => { if (_saving && !_forceClose) e.Cancel = true; };
         if (settings.LoadFailed) _status.Text = "이전 설정을 읽지 못해 기본값을 표시합니다. 메모는 그대로 유지됩니다. 저장하면 새 설정이 적용됩니다.";
         RefreshStartup();
+    }
+
+    private async Task RunBackupAsync(NoteWorkspace workspace, bool restore)
+    {
+        if (_saving || workspace.IsBusy) return;
+        const string filter = "Windows 메모 백업 (*.wmbackup)|*.wmbackup";
+        FileDialog dialog = restore
+            ? new OpenFileDialog { Filter = filter }
+            : new SaveFileDialog { Filter = filter, DefaultExt = ".wmbackup", FileName = $"WindowsMemo-{DateTime.Now:yyyyMMdd-HHmmss}", OverwritePrompt = false };
+        if (dialog.ShowDialog(this) != true) return;
+        if (restore && MessageBox.Show(this, "백업의 메모를 사본으로 추가할까요? 현재 메모는 유지됩니다.",
+                "백업에서 복원", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+        _saving = true; _fields.IsEnabled = _save.IsEnabled = false;
+        _status.Text = restore ? "백업을 검사하고 있습니다…" : "백업을 만들고 있습니다…";
+        try
+        {
+            if (restore)
+            {
+                int? count = await workspace.RestoreBackupAsync(dialog.FileName);
+                _status.Text = count switch
+                {
+                    null => "현재 메모를 저장하지 못했습니다. 저장 후 다시 시도하세요.",
+                    0 => "새로 복원할 메모가 없습니다.",
+                    _ => $"메모 {count}개를 복원했습니다. 메모 목록·보관함·휴지통에서 확인하세요."
+                };
+            }
+            else
+            {
+                _status.Text = await workspace.ExportBackupAsync(dialog.FileName)
+                    ? "메모 백업을 만들었습니다."
+                    : "현재 메모를 저장하지 못했습니다. 저장 후 다시 시도하세요.";
+            }
+        }
+        catch (Exception ex) when (NoteWorkspace.IsNoteError(ex))
+        {
+            _status.Text = restore
+                ? "복원을 완료하지 못했습니다. 현재 메모는 보존됩니다. 파일과 Windows 계정을 확인한 뒤 같은 백업으로 다시 시도하세요."
+                : "백업을 만들지 못했습니다. 새 파일 이름, 폴더 권한과 메모 상태를 확인하세요.";
+        }
+        finally { _saving = false; if (!_closed) _fields.IsEnabled = _save.IsEnabled = true; }
     }
 
     private async void Save(object sender, RoutedEventArgs args)

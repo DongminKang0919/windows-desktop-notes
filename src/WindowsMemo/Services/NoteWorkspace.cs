@@ -403,9 +403,49 @@ internal sealed class NoteWorkspace : IDisposable
 
     public Task<bool> FlushAllAsync() => SaveThenAsync(null);
 
+    internal Task<bool> ExportBackupAsync(string path) => FlushCoreAsync(async () =>
+    {
+        var repositories = _entries.Values.Select(entry => entry.Repository).ToArray();
+        await Task.Run(() => UserNoteBackup.Write(path, repositories,
+            record => _dispatcher.Invoke(() => { RtfDocumentCodec.Load(record.Rtf); })));
+    });
+
+    internal async Task<int?> RestoreBackupAsync(string path)
+    {
+        int restored = 0;
+        bool saved = await FlushCoreAsync(async () =>
+        {
+            var records = await Task.Run(() => UserNoteBackup.Read(path));
+            if (_disposed) return;
+            var pending = records.Select(record =>
+            {
+                RtfDocumentCodec.Load(record.Rtf);
+                return (Record: record, Title: NoteTitleSummary.FromRecord(record));
+            }).Where(item => !_entries.ContainsKey(item.Record.Id)).ToArray();
+            if (_entries.Count + pending.Length > 1000)
+                throw new System.IO.InvalidDataException("복원하면 메모가 1,000개를 초과합니다.");
+            foreach (var (record, title) in pending)
+            {
+                var repository = new FileNoteRepository(_root, record.Id);
+                await Task.Run(() => repository.SaveNew(record));
+                if (_disposed) return;
+                _entries.Add(record.Id, new Entry(repository)
+                {
+                    Hidden = true, Archived = record.Archived, Trashed = record.DeletedAtUtc is not null, Title = title
+                });
+                restored++;
+            }
+        });
+        return saved ? restored : null;
+    }
+
     // Keep editing and workspace mutations blocked until the update/exit handoff finishes.
-    public Task<bool> SaveThenAsync(Action? afterSave) => FlushCoreAsync(afterSave);
-    private async Task<bool> FlushCoreAsync(Action? afterSave)
+    public Task<bool> SaveThenAsync(Action? afterSave) => FlushCoreAsync(() =>
+    {
+        afterSave?.Invoke();
+        return Task.CompletedTask;
+    });
+    private async Task<bool> FlushCoreAsync(Func<Task> afterSave)
     {
         if (IsBusy) return false;
         _busy = true; Publish();
@@ -420,7 +460,7 @@ internal sealed class NoteWorkspace : IDisposable
                 if (_disposed) return false;
                 if (!await session.FlushAsync()) success = false;
             }
-            if (success && !_disposed) afterSave?.Invoke();
+            if (success && !_disposed) await afterSave();
             return success && !_disposed;
         }
         finally

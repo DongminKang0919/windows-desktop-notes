@@ -74,7 +74,7 @@
      </RichTextBox>
      <TextBlock x:Name="Placeholder" Text="여기서 시작해 보세요…" Foreground="{x:Static local:NoteTheme.MutedInk}" IsHitTestVisible="False" Margin="0,2,0,0"/>
     </Grid>
-    <Grid x:Name="Footer" Grid.Row="3" Margin="22,0,12,10">
+    <Grid x:Name="Footer" Grid.Row="3" Margin="22,0,12,10" MinHeight="18">
      <StackPanel Margin="0,0,20,0">
       <TextBlock x:Name="SaveLabel" Foreground="#9D3327" TextWrapping="Wrap" FontSize="11" Visibility="Collapsed" AutomationProperties.LiveSetting="Polite"/>
       <Button x:Name="SaveButton" Content="저장 다시 시도" MinHeight="28" Visibility="Collapsed" HorizontalAlignment="Left" Click="Save_OnClick"/>
@@ -82,10 +82,21 @@
       <Button x:Name="ReconnectButton" Content="바탕화면 다시 연결" MinHeight="28" Visibility="Collapsed" HorizontalAlignment="Left" Click="Reconnect_OnClick"/>
       <TextBlock x:Name="NoticeLabel" FontSize="11" Foreground="#9D3327" TextWrapping="Wrap"/>
      </StackPanel>
-     <Thumb x:Name="ResizeGrip" Width="18" Height="18" HorizontalAlignment="Right" VerticalAlignment="Bottom" Cursor="SizeNWSE" DragDelta="ResizeGrip_OnDragDelta">
-      <Thumb.Template><ControlTemplate TargetType="Thumb"><Path Data="M 5,15 L 15,5 M 10,15 L 15,10" Stroke="#706D58" StrokeThickness="1" Opacity="0.45"/></ControlTemplate></Thumb.Template>
-     </Thumb>
     </Grid>
+    <Thumb x:Name="ResizeGrip" Grid.Row="3" Width="26" Height="26" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+     Cursor="SizeNWSE" DragDelta="ResizeGrip_OnDragDelta">
+     <Thumb.Template><ControlTemplate TargetType="Thumb">
+      <Grid Background="Transparent">
+       <Path x:Name="GripMark" Data="M 8,13 L 13,8 M 3,13 L 13,3" Stroke="#706D58" StrokeThickness="1"
+        Opacity="0.45" Width="14" Height="14" Margin="0,0,3,3" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+        IsHitTestVisible="False"/>
+      </Grid>
+      <ControlTemplate.Triggers>
+       <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="GripMark" Property="Opacity" Value="1"/></Trigger>
+       <Trigger Property="IsDragging" Value="True"><Setter TargetName="GripMark" Property="Opacity" Value="1"/></Trigger>
+      </ControlTemplate.Triggers>
+     </ControlTemplate></Thumb.Template>
+    </Thumb>
    </Grid>
   </Border>
  </Border>

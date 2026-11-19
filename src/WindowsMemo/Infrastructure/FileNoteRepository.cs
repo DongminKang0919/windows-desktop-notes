@@ -111,12 +111,7 @@ public sealed class FileNoteRepository
                 throw new IOException("기존 메모를 덮어쓸 수 없습니다.");
             Directory.CreateDirectory(_root);
             CheckPaths();
-            byte[] plain = JsonSerializer.SerializeToUtf8Bytes(record, JsonOptions);
-            byte[] cipher;
-            try { cipher = ProtectedData.Protect(plain, null, DataProtectionScope.CurrentUser); }
-            finally { CryptographicOperations.ZeroMemory(plain); }
-            byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(new Envelope(1, "DPAPI-CurrentUser", cipher), JsonOptions);
-            if (bytes.Length > MaxFileBytes) throw new InvalidDataException("저장 파일이 크기 한도를 초과했습니다.");
+            byte[] bytes = EncodeSnapshot(record);
             string temp = Path.Combine(_root, Guid.NewGuid().ToString("N") + ".tmp");
             try
             {
@@ -148,6 +143,17 @@ public sealed class FileNoteRepository
                 if (File.Exists(temp)) File.Delete(temp);
             }
         }
+    }
+
+    internal static byte[] EncodeSnapshot(NoteRecord record)
+    {
+        byte[] plain = JsonSerializer.SerializeToUtf8Bytes(record, JsonOptions);
+        byte[] cipher;
+        try { cipher = ProtectedData.Protect(plain, null, DataProtectionScope.CurrentUser); }
+        finally { CryptographicOperations.ZeroMemory(plain); }
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(new Envelope(1, "DPAPI-CurrentUser", cipher), JsonOptions);
+        if (bytes.Length > MaxFileBytes) throw new InvalidDataException("저장 파일이 크기 한도를 초과했습니다.");
+        return bytes;
     }
 
     // Only a successfully saved trash record may be permanently removed.

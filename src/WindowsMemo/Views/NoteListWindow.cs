@@ -30,6 +30,8 @@ internal sealed class NoteListWindow : Window
     private readonly TextBlock _empty = new() { TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center, Foreground = NoteTheme.MutedInk, Margin = new Thickness(20) };
     private readonly Button _new = Button("새 메모");
     private readonly Button _show;
+    private readonly Button _hide = Button("숨기기");
+    private readonly Button _archiveNote = Button("보관하기");
     private readonly Button _delete;
     private readonly TextBlock _feedback = new() { TextWrapping = TextWrapping.Wrap };
     private readonly Border _feedbackPanel;
@@ -77,7 +79,7 @@ internal sealed class NoteListWindow : Window
         Grid.SetRow(tabs, 1); panel.Children.Add(tabs);
         var searchRow = new DockPanel { Margin = new Thickness(0, 0, 0, 12) };
         AutomationProperties.SetName(_search, "메모 제목 검색");
-        AutomationProperties.SetHelpText(_search, "제목의 일부를 입력하세요. Escape로 검색을 지웁니다.");
+        AutomationProperties.SetHelpText(_search, "제목의 일부를 입력하세요. 아래쪽 화살표로 검색 결과로 이동하고 Escape로 검색을 지웁니다.");
         AutomationProperties.SetName(_filter, "메모 상태 필터");
         foreach (string label in new[] { "전체 상태", "표시 중", "숨김", "처리 실패" }) _filter.Items.Add(label);
         _filter.SelectedIndex = 0;
@@ -105,7 +107,11 @@ internal sealed class NoteListWindow : Window
         Grid.SetRow(_count, 3); panel.Children.Add(_count);
         var buttons = new WrapPanel();
         buttons.Children.Add(_new);
-        buttons.Children.Add(_show); buttons.Children.Add(_delete);
+        buttons.Children.Add(_show); buttons.Children.Add(_hide); buttons.Children.Add(_archiveNote); buttons.Children.Add(_delete);
+        _hide.ToolTip = "바탕화면에서 숨깁니다. 메모 목록에서 다시 열 수 있습니다.";
+        _archiveNote.ToolTip = "보관함으로 옮깁니다. 보관함에서 복원할 수 있습니다.";
+        AutomationProperties.SetName(_list, "메모 목록");
+        AutomationProperties.SetHelpText(_list, "화살표로 선택하고 Enter로 엽니다. 보관함과 휴지통에서는 Enter로 복원합니다.");
         var feedbackContent = new StackPanel(); feedbackContent.Children.Add(_feedback);
         var feedbackActions = new WrapPanel(); feedbackActions.Children.Add(_undo); feedbackActions.Children.Add(_reveal);
         feedbackContent.Children.Add(feedbackActions); _feedbackPanel.Child = feedbackContent;
@@ -136,6 +142,8 @@ internal sealed class NoteListWindow : Window
             catch (Exception ex) when (NoteWorkspace.IsNoteError(ex)) { SetFeedback("새 메모를 열지 못했습니다. 기존 내용은 유지됩니다. 다시 시도하세요.", failed: true); }
         };
         _show.Click += async (_, _) => await ShowSelectedAsync();
+        _hide.Click += async (_, _) => await HideSelectedAsync();
+        _archiveNote.Click += async (_, _) => await ArchiveSelectedAsync();
         _delete.Click += async (_, _) => await DeleteSelectedAsync();
         _list.MouseDoubleClick += async (_, e) =>
         {
@@ -145,7 +153,8 @@ internal sealed class NoteListWindow : Window
         _list.KeyDown += async (_, e) =>
         {
             if (e.Key != Key.Enter || Keyboard.Modifiers != ModifierKeys.None) return;
-            e.Handled = true; await ShowSelectedAsync();
+            e.Handled = true;
+            if (!e.IsRepeat) await ShowSelectedAsync();
         };
         _list.SelectionChanged += (_, _) => UpdateButtons();
         PreviewKeyDown += OnWindowKeyDown;
@@ -168,14 +177,29 @@ internal sealed class NoteListWindow : Window
         Refresh();
         if (_selection.TryGetValue(section, out var id)) _list.SelectedItem = _items.FirstOrDefault(item => item.Id == id);
     }
-    private void OnWindowKeyDown(object sender, KeyEventArgs e)
+    private async void OnWindowKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control)
+        var modifiers = Keyboard.Modifiers;
+        if (e.Key == Key.F && modifiers == ModifierKeys.Control)
         { _search.Focus(); _search.SelectAll(); e.Handled = true; }
-        else if (_search.IsKeyboardFocusWithin && e.Key == Key.Escape)
+        else if (_search.IsKeyboardFocusWithin && e.Key == Key.Escape && modifiers == ModifierKeys.None)
         { _search.Clear(); e.Handled = true; }
-        else if (_search.IsKeyboardFocusWithin && e.Key == Key.Down && _items.Count > 0)
-        { _list.SelectedIndex = 0; _list.Focus(); if (_list.ItemContainerGenerator.ContainerFromIndex(0) is ListBoxItem row) row.Focus(); e.Handled = true; }
+        else if (_search.IsKeyboardFocusWithin && e.Key == Key.Down && modifiers == ModifierKeys.None && _items.Count > 0)
+        { _list.SelectedIndex = 0; FocusListSelection(); e.Handled = true; }
+        else if (_list.IsKeyboardFocusWithin && modifiers == ModifierKeys.None && e.Key == Key.Delete && !_trash)
+        { e.Handled = true; if (!e.IsRepeat) await DeleteSelectedAsync(); }
+    }
+    private void FocusListSelection()
+    {
+        if (_list.SelectedItem is not { } selected)
+        {
+            _search.Focus();
+            return;
+        }
+        _list.ScrollIntoView(selected);
+        _list.UpdateLayout();
+        if (_list.ItemContainerGenerator.ContainerFromItem(selected) is ListBoxItem row) row.Focus();
+        else _list.Focus();
     }
     private static DataTemplate ItemTemplate()
     {
@@ -215,8 +239,7 @@ internal sealed class NoteListWindow : Window
         finally { _switching = false; }
         Navigate(section);
         _list.SelectedItem = _items.FirstOrDefault(item => item.Id == id);
-        if (_list.SelectedItem is not null) _list.ScrollIntoView(_list.SelectedItem);
-        _list.Focus();
+        FocusListSelection();
     }
     private async Task UndoDeleteAsync()
     {
@@ -242,6 +265,22 @@ internal sealed class NoteListWindow : Window
             : _trash ? "영구 삭제를 끝내지 못했습니다. 남은 파일은 휴지통에서 다시 삭제할 수 있습니다."
             : "휴지통으로 옮기지 못했습니다. 내용을 유지하고 있습니다. 다시 시도하세요.", failed: !success);
     }
+    private async Task HideSelectedAsync()
+    {
+        if (!CanPresent || !_hide.IsEnabled || _list.SelectedItem is not NoteListItem item) return;
+        SetFeedback("메모를 숨기고 있습니다…");
+        bool success = await _workspace.HideAsync(item.Id);
+        SetFeedback(success ? "바탕화면에서 숨겼습니다. 메모 목록에서 다시 열 수 있습니다."
+            : "메모를 숨기지 못했습니다. 다시 시도하세요.", failed: !success);
+    }
+    private async Task ArchiveSelectedAsync()
+    {
+        if (!CanPresent || !_archiveNote.IsEnabled || _list.SelectedItem is not NoteListItem item) return;
+        SetFeedback("보관함으로 옮기고 있습니다…");
+        bool success = await _workspace.ArchiveAsync(item.Id);
+        SetFeedback(success ? "보관함으로 옮겼습니다. 보관함에서 복원할 수 있습니다."
+            : "보관함으로 옮기지 못했습니다. 다시 시도하세요.", failed: !success);
+    }
     private bool CanPresent => !_closed && _workspace.SessionEndState != SessionEndState.Disposed;
     private void SetFeedback(string text, bool failed = false)
     {
@@ -258,6 +297,8 @@ internal sealed class NoteListWindow : Window
     {
         _new.IsEnabled = !_workspace.IsBusy;
         _show.IsEnabled = _delete.IsEnabled = !_workspace.IsBusy && _list.SelectedItem is not null;
+        _archiveNote.IsEnabled = _show.IsEnabled && CurrentSection == Section.Notes;
+        _hide.IsEnabled = _archiveNote.IsEnabled && _list.SelectedItem is NoteListItem { Hidden: false };
         _undo.IsEnabled = !_workspace.IsBusy && _workspace.CanUndoTrash;
         _reveal.IsEnabled = !_workspace.IsBusy && _restoredId is not null;
         foreach (var tab in _tabs.Values) tab.IsEnabled = !_workspace.IsBusy;
@@ -266,8 +307,12 @@ internal sealed class NoteListWindow : Window
     {
         if (_closed) return;
         Guid? selected = (_list.SelectedItem as NoteListItem)?.Id;
+        int selectedIndex = _list.SelectedIndex;
+        bool listHadFocus = _list.IsKeyboardFocusWithin;
         Title = _trash ? "Windows 메모 · 휴지통" : _archive ? "Windows 메모 · 보관함" : "Windows 메모 · 메모 목록";
         _new.Visibility = _trash || _archive ? Visibility.Collapsed : Visibility.Visible;
+        _hide.Visibility = _archiveNote.Visibility = _new.Visibility;
+        _delete.ToolTip = _trash ? "복원할 수 없도록 영구 삭제합니다." : "휴지통으로 이동 (Delete)";
         _show.Content = _trash || _archive ? "선택한 메모 복원" : "선택한 메모 열기";
         _show.Style = (Style)FindResource(_trash || _archive ? "PrimaryButton" : typeof(Button));
         _delete.Content = _trash ? "영구 삭제" : "휴지통으로 이동";
@@ -284,11 +329,17 @@ internal sealed class NoteListWindow : Window
         }
         else { _items.Clear(); foreach (var item in items) _items.Add(item); }
         _list.SelectedItem = _items.FirstOrDefault(item => item.Id == selected);
+        if (listHadFocus && selectedIndex >= 0)
+        {
+            if (_list.SelectedIndex < 0 && _items.Count > 0)
+                _list.SelectedIndex = Math.Min(selectedIndex, _items.Count - 1);
+            if (!_list.IsKeyboardFocusWithin || _list.SelectedIndex < 0) FocusListSelection();
+        }
         _count.Text = items.Length == all.Count ? $"메모 {items.Length}개" : $"검색 결과 {items.Length}개 · 전체 {all.Count}개";
         _count.TextWrapping = TextWrapping.Wrap;
         _empty.Text = all.Count > 0 && items.Length == 0 ? "일치하는 메모가 없습니다.\n검색어나 상태 필터를 바꿔 보세요."
             : _trash ? "휴지통이 비어 있습니다.\n삭제한 메모는 이곳에서 복원할 수 있습니다."
-            : _archive ? "보관한 메모가 없습니다.\n메모의 더보기에서 보관할 수 있습니다."
+            : _archive ? "보관한 메모가 없습니다.\n메모 목록에서 ‘보관하기’를 선택할 수 있습니다."
             : "메모가 없습니다.\n‘새 메모’로 생각을 적어 보세요.";
         _empty.Visibility = items.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (!_workspace.CanUndoTrash) _undo.Visibility = Visibility.Collapsed;

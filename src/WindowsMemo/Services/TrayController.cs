@@ -84,7 +84,7 @@ internal sealed class TrayController : IDisposable
     {
         if (_settingsWindow is null)
         {
-            _settingsWindow = new SettingsWindow(_workspace.Settings, _startupService);
+            _settingsWindow = new SettingsWindow(_workspace.Settings, _startupService, _workspace);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
             _settingsWindow.Show();
         }
