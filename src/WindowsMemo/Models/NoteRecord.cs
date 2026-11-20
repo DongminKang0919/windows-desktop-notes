@@ -4,7 +4,7 @@ public sealed record NoteBounds(double X, double Y, double Width, double Height,
 
 public sealed record NoteRecord(int SchemaVersion, Guid Id, byte[] Rtf, NoteBounds Bounds,
     DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, bool Hidden = false, DateTimeOffset? DeletedAtUtc = null,
-    string Paper = "Butter", bool Collapsed = false, bool Archived = false, string Title = "")
+    string Paper = "Butter", bool Collapsed = false, bool Archived = false, string Title = "", DateOnly? CalendarDate = null)
 {
-    public const int CurrentSchema = 5;
+    public const int CurrentSchema = 6;
 }

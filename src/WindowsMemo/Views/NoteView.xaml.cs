@@ -225,6 +225,12 @@ public partial class NoteView : UserControl, IDisposable
         menu.Items.Add(Item("설정…", () => SettingsRequested?.Invoke(this, EventArgs.Empty), "⚙"));
         menu.Items.Add(Item("체크리스트 추가 / 제거", ToggleChecklist, "☐"));
         menu.Items.Add(Item("완료 체크 / 해제 (Ctrl+Enter)", ToggleChecklistDone, "☑"));
+        menu.Items.Add(Item("현재 시각 삽입", () =>
+        {
+            SetCollapsed(false);
+            InsertPlainText(DateTime.Now.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture));
+            Editor.Focus();
+        }));
         var colors = new MenuItem { Header = "종이색", MinHeight = NoteTheme.ToolSize };
         foreach (var (name, value) in new[] { ("버터", "Butter"), ("세이지", "Sage"), ("피치", "Peach") })
         {

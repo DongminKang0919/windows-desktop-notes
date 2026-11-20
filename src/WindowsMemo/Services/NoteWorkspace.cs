@@ -22,6 +22,7 @@ internal sealed class NoteWorkspace : IDisposable
         public string? Error { get; set; }
         public NoteSession? Session { get; set; }
         public string Title { get; set; } = "메모";
+        public DateOnly? CalendarDate { get; set; }
     }
     private readonly string _root;
     private readonly Dispatcher _dispatcher;
@@ -84,7 +85,11 @@ internal sealed class NoteWorkspace : IDisposable
             }), out bool recovered);
             return (record, recovered);
         });
-        if (!_disposed && loaded.record is not null) entry.Title = title;
+        if (!_disposed && loaded.record is not null)
+        {
+            entry.Title = title;
+            entry.CalendarDate = loaded.record.CalendarDate;
+        }
         return loaded;
     }
     internal static bool IsNoteError(Exception ex) => FileNoteRepository.IsStorageError(ex)
@@ -132,7 +137,8 @@ internal sealed class NoteWorkspace : IDisposable
     {
         var offset = (_entries.Count % 10) * 28;
         var session = new NoteSession(entry.Repository, record, (view, bounds) =>
-            _createSurface(view, bounds ?? new NoteBounds(48 + offset, 64 + offset, Settings.Current.NoteWidth, Settings.Current.NoteHeight)), Settings.Current.DefaultPaper);
+            _createSurface(view, bounds ?? new NoteBounds(48 + offset, 64 + offset, Settings.Current.NoteWidth, Settings.Current.NoteHeight)),
+            Settings.Current.DefaultPaper, entry.CalendarDate);
         session.View.NewRequested += OnNew;
         session.View.ListRequested += OnList;
         session.View.CloseRequested += OnHide;
@@ -159,13 +165,44 @@ internal sealed class NoteWorkspace : IDisposable
         CreateCore(Guid.NewGuid());
         Publish();
     }
-    private void CreateCore(Guid id)
+    private Entry CreateCore(Guid id, DateOnly? calendarDate = null)
     {
         if (_entries.Count >= 1000) throw new InvalidOperationException("메모는 초기 한도 1,000개까지 만들 수 있습니다.");
-        var entry = new Entry(new FileNoteRepository(_root, id));
+        var entry = new Entry(new FileNoteRepository(_root, id)) { CalendarDate = calendarDate };
         // Do not add an unusable empty entry if the surface cannot be opened.
         Open(entry, null);
         _entries.Add(id, entry);
+        return entry;
+    }
+    internal IEnumerable<DateOnly> CalendarDates => _entries.Values
+        .Where(entry => entry.CalendarDate.HasValue).Select(entry => entry.CalendarDate.GetValueOrDefault());
+
+    internal NoteListItem? CalendarNote(DateOnly date) => _entries
+        .Where(pair => pair.Value.CalendarDate == date)
+        .OrderBy(pair => pair.Value.Trashed).ThenBy(pair => pair.Value.Archived).ThenBy(pair => pair.Key)
+        .Select(pair => new NoteListItem(pair.Key, pair.Value.Hidden, pair.Value.Error,
+            pair.Value.Trashed, pair.Value.Archived, pair.Value.Title)).FirstOrDefault();
+
+    internal async Task<bool> OpenCalendarNoteAsync(DateOnly date)
+    {
+        if (IsBusy) return false;
+        if (CalendarNote(date) is { } note)
+        {
+            if (note.Trashed && !await RestoreAsync(note.Id)) return false;
+            if (note.Archived && !await UnarchiveAsync(note.Id)) return false;
+            return await ShowAsync(note.Id);
+        }
+
+        _busy = true;
+        Publish();
+        try
+        {
+            var entry = CreateCore(Guid.NewGuid(), date);
+            if (!await entry.Session!.FlushAsync() && !_disposed)
+                Notice?.Invoke(this, "날짜별 메모를 저장하지 못했습니다. 메모에서 다시 저장할 수 있습니다.");
+            return !_disposed;
+        }
+        finally { _busy = false; Publish(); }
     }
     private void OnNew(object? sender, EventArgs e)
     {
@@ -260,7 +297,7 @@ internal sealed class NoteWorkspace : IDisposable
             // Durable hidden copy first: failure cannot replace an existing note or lose the source.
             if (!_disposed)
             {
-                _entries.Add(id, new Entry(repository) { Hidden = true, Title = title });
+                _entries.Add(id, new Entry(repository) { Hidden = true, Title = title, CalendarDate = copy.CalendarDate });
             }
             return new(id, PendingRecoveryStatus.Created);
         }
@@ -431,7 +468,8 @@ internal sealed class NoteWorkspace : IDisposable
                 if (_disposed) return;
                 _entries.Add(record.Id, new Entry(repository)
                 {
-                    Hidden = true, Archived = record.Archived, Trashed = record.DeletedAtUtc is not null, Title = title
+                    Hidden = true, Archived = record.Archived, Trashed = record.DeletedAtUtc is not null,
+                    Title = title, CalendarDate = record.CalendarDate
                 });
                 restored++;
             }

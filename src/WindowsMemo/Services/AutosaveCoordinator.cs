@@ -14,6 +14,7 @@ public sealed class AutosaveCoordinator : IDisposable
     private readonly Func<bool> _hidden;
     private readonly Func<DateTimeOffset?> _deleted;
     private readonly Func<bool> _archived;
+    private readonly DateOnly? _calendarDate;
     private readonly DispatcherTimer _timer;
     private Task<bool>? _saving;
     private long _version, _savedVersion;
@@ -24,10 +25,11 @@ public sealed class AutosaveCoordinator : IDisposable
     internal SaveState State => _disposed ? SaveState.Disposed : _saving is not null ? SaveState.Saving
         : _saveFailed ? SaveState.Failed : _version != _savedVersion ? SaveState.Dirty : SaveState.Saved;
 
-    public AutosaveCoordinator(NoteView view, FileNoteRepository repository, Func<NoteBounds> bounds, DateTimeOffset created, Func<bool>? hidden = null, Func<DateTimeOffset?>? deleted = null, Func<bool>? archived = null)
+    public AutosaveCoordinator(NoteView view, FileNoteRepository repository, Func<NoteBounds> bounds, DateTimeOffset created, Func<bool>? hidden = null, Func<DateTimeOffset?>? deleted = null, Func<bool>? archived = null, DateOnly? calendarDate = null)
     {
         _view = view; _repository = repository; _bounds = bounds; _created = created; _hidden = hidden ?? (() => false); _deleted = deleted ?? (() => null);
         _archived = archived ?? (() => false);
+        _calendarDate = calendarDate;
         _view.DocumentChanged += OnChange;
         _view.AppearanceChanged += OnChange;
         _view.SaveRequested += OnSave;
@@ -89,7 +91,7 @@ public sealed class AutosaveCoordinator : IDisposable
         {
             _view.SetSaveStatus(_saveFailed ? "저장 재시도 중…" : "저장 중…", _saveFailed);
             var record = new NoteRecord(NoteRecord.CurrentSchema, _repository.Id, RtfDocumentCodec.Save(_view.TextEditor.Document),
-                _bounds(), _created, DateTimeOffset.UtcNow, _hidden(), _deleted(), _view.Paper, _view.IsCollapsed, _archived(), _view.CustomTitle);
+                _bounds(), _created, DateTimeOffset.UtcNow, _hidden(), _deleted(), _view.Paper, _view.IsCollapsed, _archived(), _view.CustomTitle, _calendarDate);
             await Task.Run(() => _repository.Save(record));
             _savedVersion = version;
             _saveFailed = false;

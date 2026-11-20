@@ -60,6 +60,34 @@ internal static class NoteListTests
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
         try
         {
+            check("날짜별 메모: 재사용·제목 변경·재시작·휴지통 복원", () =>
+            {
+                using var f = new Fixture();
+                var date = new DateOnly(2026, 11, 20);
+                var create = f.Workspace.OpenCalendarNoteAsync(date);
+                Wait(create);
+                Require(create.Result);
+                var id = f.Workspace.CalendarNote(date)!.Id;
+                var view = f.Surfaces.Last().View;
+                var text = new TextRange(view.TextEditor.Document.ContentStart, view.TextEditor.Document.ContentEnd);
+                Require(text.Text.StartsWith("☐ ", StringComparison.Ordinal));
+                view.SetCustomTitle("오늘 할 일");
+                var reopen = f.Workspace.OpenCalendarNoteAsync(date);
+                Wait(reopen);
+                Require(reopen.Result && f.Workspace.CalendarDates.Count(day => day == date) == 1);
+                var trash = f.Workspace.TrashAsync(id);
+                Wait(trash);
+                Require(trash.Result);
+                f.Workspace.Dispose();
+
+                using var restarted = f.Open();
+                Wait(restarted.InitializeAsync());
+                Require(restarted.CalendarNote(date) is { Trashed: true, Title: "오늘 할 일" } item && item.Id == id);
+                var restore = restarted.OpenCalendarNoteAsync(date);
+                Wait(restore);
+                Require(restore.Result && restarted.CalendarNote(date) is { Trashed: false } active && active.Id == id);
+            });
+
             check("사용자 백업: 기존 메모 보존·상태 복원·중복과 잘린 백업 차단", () =>
             {
                 using var f = new Fixture();

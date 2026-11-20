@@ -19,6 +19,8 @@ internal sealed class TrayController : IDisposable
     private readonly Icon _icon = (Icon)SystemIcons.Application.Clone();
     private readonly Forms.ToolStripMenuItem _new = new("새 메모");
     private readonly Forms.ToolStripMenuItem _list = new("메모 목록");
+    private readonly Forms.ToolStripMenuItem _calendar = new("메모 달력");
+    private NoteCalendarWindow? _calendarWindow;
     private readonly Forms.ToolStripMenuItem _settings = new("설정…");
     private SettingsWindow? _settingsWindow;
     private readonly Forms.ToolStripMenuItem _trash = new("휴지통");
@@ -37,10 +39,11 @@ internal sealed class TrayController : IDisposable
         _app = app; _workspace = workspace; _startupService = startupService; _updater = updater;
         try
         {
-            _menu.Items.AddRange([_new, _list, _archive, _undoArchive, _trash, _undoTrash, _recovery, new Forms.ToolStripSeparator(), _settings, _startup, new Forms.ToolStripSeparator(), _exit]);
+            _menu.Items.AddRange([_new, _list, _calendar, _archive, _undoArchive, _trash, _undoTrash, _recovery, new Forms.ToolStripSeparator(), _settings, _startup, new Forms.ToolStripSeparator(), _exit]);
             if (_updater is not null) _menu.Items.Insert(_menu.Items.Count - 1, _update);
             _tray.Icon = _icon; _tray.Text = $"Windows 메모 · {typeof(TrayController).Assembly.GetName().Version?.ToString(3)}"; _tray.ContextMenuStrip = _menu;
             _new.Click += OnNew; _list.Click += OnList; _trash.Click += OnTrash; _exit.Click += OnExit;
+            _calendar.Click += OnCalendar;
             _tray.DoubleClick += OnList;
             _settings.Click += OnSettings;
             _startup.Click += OnStartup;
@@ -66,6 +69,17 @@ internal sealed class TrayController : IDisposable
         catch (Exception ex) when (NoteWorkspace.IsNoteError(ex)) { OnNotice(this, "새 메모를 열지 못했습니다. 기존 내용은 유지됩니다."); }
     });
     private void OnList(object? sender, EventArgs e) => Dispatch(ShowList);
+    private void OnCalendar(object? sender, EventArgs e) => Dispatch(() =>
+    {
+        if (_calendarWindow is null)
+        {
+            _calendarWindow = new NoteCalendarWindow(_workspace);
+            _calendarWindow.Closed += (_, _) => _calendarWindow = null;
+            _calendarWindow.Show();
+        }
+        if (_calendarWindow.WindowState == WindowState.Minimized) _calendarWindow.WindowState = WindowState.Normal;
+        _calendarWindow.Activate();
+    });
     public void ShowList() => ShowSection(NoteListWindow.Section.Notes);
     private void ShowSection(NoteListWindow.Section section)
     {
@@ -233,6 +247,7 @@ internal sealed class TrayController : IDisposable
         _workspace.TrashListRequested -= OnTrash;
         _workspace.SettingsRequested -= OnSettings;
         _settings.Click -= OnSettings;
+        _calendar.Click -= OnCalendar;
         _new.Click -= OnNew; _list.Click -= OnList; _trash.Click -= OnTrash; _exit.Click -= OnExit; _tray.DoubleClick -= OnList;
         _startup.Click -= OnStartup; _menu.Opening -= OnMenuOpening;
         _update.Click -= OnUpdate;
@@ -243,6 +258,7 @@ internal sealed class TrayController : IDisposable
         _tray.Visible = false; _tray.ContextMenuStrip = null;
         _tray.Dispose(); _menu.Dispose(); _icon.Dispose();
         _window?.Close(); _window = null;
+        _calendarWindow?.Close(); _calendarWindow = null;
         _recoveryWindow?.Close(); _recoveryWindow = null;
         _settingsWindow?.CloseForShutdown(); _settingsWindow = null;
     }

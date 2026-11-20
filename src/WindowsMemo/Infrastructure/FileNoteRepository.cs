@@ -213,8 +213,9 @@ public sealed class FileNoteRepository
     public static void Validate(NoteRecord record)
     {
         if (record.SchemaVersion > NoteRecord.CurrentSchema) throw new UnsupportedNoteSchemaException();
-        if (record.SchemaVersion is not (1 or 2 or 3 or 4 or 5) || (record.SchemaVersion == 1 && record.Hidden)
+        if (record.SchemaVersion < 1 || (record.SchemaVersion == 1 && record.Hidden)
             || !Services.NoteTitleSummary.IsValidCustomTitle(record.Title) || (record.SchemaVersion < 5 && record.Title != "")
+            || (record.SchemaVersion < 6 && record.CalendarDate is not null)
             || !WindowsMemo.Views.NoteTheme.IsPaper(record.Paper)
             || (record.SchemaVersion < 4 && (record.Paper != "Butter" || record.Collapsed || record.Archived))
             || (record.Archived && (!record.Hidden || record.DeletedAtUtc is not null))

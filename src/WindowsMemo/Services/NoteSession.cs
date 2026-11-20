@@ -17,20 +17,22 @@ internal sealed class NoteSession : IDisposable
     internal SaveState SaveState => _saves.State;
 
     public NoteSession(FileNoteRepository repository, NoteRecord? record,
-        Func<NoteView, NoteBounds?, INoteSurface> createSurface, string defaultPaper = "Butter")
+        Func<NoteView, NoteBounds?, INoteSurface> createSurface, string defaultPaper = "Butter", DateOnly? calendarDate = null)
     {
         Id = repository.Id;
         View = new NoteView();
         try
         {
             if (record is not null) View.TextEditor.Document = RtfDocumentCodec.Load(record.Rtf);
-            View.SetCustomTitle(record?.Title ?? "");
+            View.SetCustomTitle(record?.Title ?? calendarDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) ?? "");
+            if (record is null && calendarDate is not null) View.InsertPlainText("☐ ");
             View.RefreshTitle();
             View.SetPaper(record?.Paper ?? defaultPaper);
             View.SetCollapsed(record?.Collapsed ?? false);
             _surface = createSurface(View, record?.Bounds);
             _saves = new AutosaveCoordinator(View, repository, _surface.CaptureBounds,
-                record?.CreatedAtUtc ?? DateTimeOffset.UtcNow, () => _hidden, () => _deleted, () => _archived);
+                record?.CreatedAtUtc ?? DateTimeOffset.UtcNow, () => _hidden, () => _deleted, () => _archived,
+                record?.CalendarDate ?? calendarDate);
             _surface.BoundsChanged += OnBounds;
             // New/visible/fitted state must be persisted even when only the visibility changed.
             _saves.MarkChanged();
